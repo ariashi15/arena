@@ -37,6 +37,9 @@ enum GameStateEngine {
             players[i].isDead = false
             players[i].respawnAt = nil
             players[i].hasPlacedCheckpoint = false
+            players[i].kills = 0
+            players[i].damageDone = 0
+            players[i].deaths = 0
         }
         state.players = players
         state.checkpoints.removeAll()
@@ -49,23 +52,31 @@ enum GameStateEngine {
     static func applyShoot(_ state: inout GameState, event: ShootEvent) {
         guard state.phase == .playing else { return }
 
+        let shooterIdx = state.players.firstIndex(where: { $0.id == event.shooterId })
+
         if let pid = event.damagedPlayerId,
            let i = state.players.firstIndex(where: { $0.id == pid }) {
             if state.players[i].isDead { return }
+            let dealt = min(event.playerDamage, state.players[i].health)
             state.players[i].health -= event.playerDamage
+            if let si = shooterIdx { state.players[si].damageDone += dealt }
             if state.players[i].health <= 0 {
                 state.players[i].health = 0
                 state.players[i].isDead = true
+                state.players[i].deaths += 1
                 state.players[i].respawnAt = Date().addingTimeInterval(GameConstants.respawnDuration)
+                if let si = shooterIdx { state.players[si].kills += 1 }
             }
         }
 
         if let cid = event.damagedCheckpointId,
            let i = state.checkpoints.firstIndex(where: { $0.id == cid }) {
+            let dealt = min(event.checkpointDamage, state.checkpoints[i].xp)
             state.checkpoints[i].xp -= event.checkpointDamage
             if state.checkpoints[i].xp < 0 {
                 state.checkpoints[i].xp = 0
             }
+            if let si = shooterIdx { state.players[si].damageDone += max(0, dealt) }
         }
 
         if let winner = winnerIfAny(state) {
