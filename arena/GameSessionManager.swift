@@ -183,7 +183,7 @@ final class GameSessionManager: NSObject {
     }
 
     private static func makeJoinCode() -> String {
-        String(format: "%06d", Int.random(in: 0...999_999))
+        String(format: "%03d", Int.random(in: 0...999))
     }
 
     private static func normalizeJoinCode(_ raw: String) -> String {

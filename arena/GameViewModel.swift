@@ -101,7 +101,7 @@ final class GameViewModel: ObservableObject {
     }
 
     private static func isValidJoinCode(_ code: String) -> Bool {
-        guard code.count == 6 else { return false }
+        guard code.count == 3 else { return false }
         return code.allSatisfy(\.isNumber)
     }
 
