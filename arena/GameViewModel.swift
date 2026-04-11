@@ -203,6 +203,56 @@ final class GameViewModel: ObservableObject {
         startMatchFromLobby()
     }
 
+    /// Host-only bypass for quickly testing `GameView` on one device.
+    /// Skips field selection/checkpoint placement and enters `.playing` immediately.
+    func startGameplayBypassFromLobby() {
+        guard session.isHost else { return }
+        guard gameState.phase == .lobby else { return }
+
+        if gameState.players.contains(where: { $0.id == GameConstants.soloTestBotPlayerId }) == false {
+            let bot = PlayerState(
+                id: GameConstants.soloTestBotPlayerId,
+                displayName: "Solo test (dummy)",
+                team: .b,
+                health: GameConstants.playerMaxHealth,
+                isDead: false,
+                respawnAt: nil,
+                hasPlacedCheckpoint: false
+            )
+            gameState.players.append(bot)
+        }
+
+        for i in gameState.players.indices {
+            gameState.players[i].health = GameConstants.playerMaxHealth
+            gameState.players[i].isDead = false
+            gameState.players[i].respawnAt = nil
+            gameState.players[i].hasPlacedCheckpoint = true
+            gameState.players[i].team = gameState.players[i].id == localPlayerId ? .a : .b
+        }
+
+        gameState.fieldBounds = .defaultPlayArea
+        gameState.teamSplitAxis = .leftRight
+        gameState.winningTeam = nil
+
+        gameState.checkpoints = gameState.players.map { player in
+            let pos = GameStateEngine.defaultCheckpointPosition(team: player.team, splitAxis: gameState.teamSplitAxis)
+            return CheckpointState(
+                id: UUID(),
+                ownerPlayerId: player.id,
+                team: player.team,
+                xp: GameConstants.checkpointMaxXP,
+                normalizedX: pos.x,
+                normalizedY: pos.y
+            )
+        }
+
+        gameState.phase = .playing
+        objectWillChange.send()
+        session.broadcast(.fullState(gameState), reliable: true)
+        startGameplayInfrastructure()
+        statusMessage = "Gameplay bypass active — testing in solo mode"
+    }
+
     func placeCheckpoint(normalizedX: Double, normalizedY: Double) {
         guard let me = gameState.players.first(where: { $0.id == localPlayerId }) else { return }
         guard gameState.phase == .placingCheckpoints else { return }

@@ -3,6 +3,7 @@
 //  arena
 //
 
+import CoreLocation
 import MapKit
 import SwiftUI
 
@@ -10,7 +11,9 @@ struct GameView: View {
     @EnvironmentObject private var game: GameViewModel
     @StateObject private var location = LocationManager()
     @State private var placementCamera: MapCameraPosition = .automatic
+    @State private var gameplayCamera: MapCameraPosition = .automatic
     @State private var showingExitConfirmation = false
+    @State private var lastFollowedCoordinate: CLLocationCoordinate2D?
 
     var body: some View {
         NavigationStack {
@@ -46,6 +49,19 @@ struct GameView: View {
                 location.requestAuthorizationIfNeeded()
                 location.startUpdates()
                 placementCamera = .region(game.gameState.fieldBounds.coordinateRegion)
+                gameplayCamera = .region(game.gameState.fieldBounds.coordinateRegion)
+                updateGameplayCameraIfNeeded(force: true)
+            }
+            .onChange(of: game.gameState.phase) { _, phase in
+                if phase == .playing {
+                    updateGameplayCameraIfNeeded(force: true)
+                }
+                if phase == .placingCheckpoints {
+                    placementCamera = .region(game.gameState.fieldBounds.coordinateRegion)
+                }
+            }
+            .onReceive(location.$lastLocation) { _ in
+                updateGameplayCameraIfNeeded()
             }
             .onDisappear {
                 location.stopUpdates()
@@ -147,6 +163,12 @@ struct GameView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
+                playingMap
+
+                Text("Checkpoints on the map appear only when you are within \(Int(GameConstants.checkpointRevealDistanceMeters)) m (GPS). XP is shown above each revealed checkpoint.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 ForEach(game.gameState.players) { p in
                     HStack {
                         VStack(alignment: .leading) {
@@ -192,6 +214,124 @@ struct GameView: View {
         }
     }
 
+    /// Checkpoints whose markers are shown on the map (within reveal distance of the user).
+    private var revealedCheckpointsForMap: [CheckpointMapItem] {
+        guard let userLoc = location.lastLocation else { return [] }
+        let bounds = game.gameState.fieldBounds
+        return game.gameState.checkpoints.compactMap { cp -> CheckpointMapItem? in
+            let coord = bounds.coordinate(normalizedX: cp.normalizedX, normalizedY: cp.normalizedY)
+            let checkpointLocation = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+            let distance = userLoc.distance(from: checkpointLocation)
+            guard distance <= GameConstants.checkpointRevealDistanceMeters else { return nil }
+            return CheckpointMapItem(checkpoint: cp, coordinate: coord)
+        }
+    }
+
+    private var playingMap: some View {
+        Map(position: $gameplayCamera) {
+            MapPolygon(coordinates: game.gameState.fieldBounds.mapPolygonCoordinates)
+                .foregroundStyle(Color.gray.opacity(0.2))
+            MapPolygon(coordinates: game.gameState.fieldBounds.teamAPolygonCoordinates(splitAxis: game.gameState.teamSplitAxis))
+                .foregroundStyle(Color.cyan.opacity(0.14))
+            MapPolygon(coordinates: game.gameState.fieldBounds.teamBPolygonCoordinates(splitAxis: game.gameState.teamSplitAxis))
+                .foregroundStyle(Color.pink.opacity(0.12))
+
+            if let coordinate = location.lastLocation?.coordinate {
+                Annotation("", coordinate: coordinate, anchor: .bottom) {
+                    playerMapCallout
+                }
+            }
+
+            ForEach(revealedCheckpointsForMap) { item in
+                Annotation("", coordinate: item.coordinate) {
+                    checkpointMapCallout(for: item.checkpoint)
+                }
+            }
+        }
+        .frame(minHeight: 460)
+        .mapStyle(.standard(elevation: .flat))
+        .mapControls {
+            MapCompass()
+            MapUserLocationButton()
+        }
+    }
+
+    @ViewBuilder
+    private func checkpointMapCallout(for checkpoint: CheckpointState) -> some View {
+        VStack(spacing: 2) {
+            Text("\(checkpoint.xp) XP")
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.regularMaterial, in: Capsule())
+                .shadow(radius: 2)
+            Image(systemName: "mappin.circle.fill")
+                .font(.title2)
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.white, checkpoint.team == .a ? Color.cyan : Color.pink)
+        }
+    }
+
+    private var playerMapCallout: some View {
+        VStack(spacing: 3) {
+            Text("\(localPlayerXP) XP")
+                .font(.caption2.weight(.semibold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.regularMaterial, in: Capsule())
+                .shadow(radius: 2)
+            Image(systemName: "figure.stand")
+                .font(.title2)
+                .foregroundStyle(.blue)
+                .padding(6)
+                .background(.thickMaterial, in: Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                )
+                .shadow(radius: 2)
+        }
+    }
+
+    private var localPlayerXP: Int {
+        game.gameState.checkpoints
+            .first(where: { $0.ownerPlayerId == game.localPlayerId })?
+            .xp ?? 0
+    }
+
+    private var gameplayTrackingDistanceMeters: CLLocationDistance {
+        let bounds = game.gameState.fieldBounds
+        let sw = CLLocation(latitude: min(bounds.minLatitude, bounds.maxLatitude), longitude: min(bounds.minLongitude, bounds.maxLongitude))
+        let ne = CLLocation(latitude: max(bounds.minLatitude, bounds.maxLatitude), longitude: max(bounds.minLongitude, bounds.maxLongitude))
+        let diagonal = sw.distance(from: ne)
+        return min(max(diagonal * 0.35, 80), 500)
+    }
+
+    private func updateGameplayCameraIfNeeded(force: Bool = false) {
+        guard game.gameState.phase == .playing else { return }
+        guard let coordinate = location.lastLocation?.coordinate else {
+            gameplayCamera = .region(game.gameState.fieldBounds.coordinateRegion)
+            return
+        }
+
+        if force == false, let previous = lastFollowedCoordinate {
+            let previousLocation = CLLocation(latitude: previous.latitude, longitude: previous.longitude)
+            let currentLocation = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+            let movedDistance = currentLocation.distance(from: previousLocation)
+            guard movedDistance >= 2 else { return }
+        }
+
+        lastFollowedCoordinate = coordinate
+        gameplayCamera = .camera(
+            MapCamera(
+                centerCoordinate: coordinate,
+                distance: gameplayTrackingDistanceMeters,
+                heading: 0,
+                pitch: 0
+            )
+        )
+    }
+
     private func shortUUID(_ id: UUID) -> String {
         String(id.uuidString.prefix(8))
     }
@@ -209,6 +349,12 @@ struct GameView: View {
         }
         return game.gameState.fieldBounds.coordinate(normalizedX: checkpoint.normalizedX, normalizedY: checkpoint.normalizedY)
     }
+}
+
+private struct CheckpointMapItem: Identifiable {
+    let checkpoint: CheckpointState
+    let coordinate: CLLocationCoordinate2D
+    var id: UUID { checkpoint.id }
 }
 
 #Preview {

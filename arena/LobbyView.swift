@@ -68,6 +68,11 @@ struct LobbyView: View {
                         }
                     }
                     Section("Solo testing") {
+                        Button("Bypass to gameplay view (instant)") {
+                            game.startGameplayBypassFromLobby()
+                        }
+                        .disabled(game.gameState.phase != .lobby)
+
                         Button("Start solo test match (1 device)") {
                             game.startSoloTestMatchFromLobby()
                         }

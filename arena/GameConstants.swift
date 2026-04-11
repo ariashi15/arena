@@ -50,6 +50,9 @@ enum GameConstants {
     /// Starting XP for each checkpoint.
     static let checkpointMaxXP = 100
 
+    /// Gameplay map: a checkpoint marker is only shown when GPS says you are within this distance (meters).
+    static let checkpointRevealDistanceMeters: Double = 5
+
     /// Damage applied per successful shot to a player.
     static let playerShotDamage = 10
 
