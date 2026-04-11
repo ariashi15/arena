@@ -10,7 +10,8 @@ struct FieldSelectionView: View {
     @EnvironmentObject private var game: GameViewModel
     @StateObject private var location = LocationManager()
     @State private var camera: MapCameraPosition = .automatic
-    @State private var draft = FieldBounds.fallback
+    @State private var hasCenteredOnUserLocation = false
+    @State private var draft: FieldBounds?
     @State private var firstCorner: CLLocationCoordinate2D?
     @State private var secondCorner: CLLocationCoordinate2D?
     @State private var splitAxis: TeamSplitAxis = .leftRight
@@ -26,10 +27,12 @@ struct FieldSelectionView: View {
 
                 MapReader { proxy in
                     Map(position: $camera) {
-                        MapPolygon(coordinates: draft.teamAPolygonCoordinates(splitAxis: splitAxis))
-                            .foregroundStyle(Color.cyan.opacity(0.28))
-                        MapPolygon(coordinates: draft.teamBPolygonCoordinates(splitAxis: splitAxis))
-                            .foregroundStyle(Color.pink.opacity(0.24))
+                        if let draft {
+                            MapPolygon(coordinates: draft.teamAPolygonCoordinates(splitAxis: splitAxis))
+                                .foregroundStyle(Color.cyan.opacity(0.28))
+                            MapPolygon(coordinates: draft.teamBPolygonCoordinates(splitAxis: splitAxis))
+                                .foregroundStyle(Color.pink.opacity(0.24))
+                        }
                         if let firstCorner {
                             Marker("Corner 1", coordinate: firstCorner)
                         }
@@ -53,9 +56,15 @@ struct FieldSelectionView: View {
                 .onAppear {
                     location.requestAuthorizationIfNeeded()
                     location.startUpdates()
-                    draft = game.gameState.fieldBounds
+                    hasCenteredOnUserLocation = false
+                    draft = nil
+                    firstCorner = nil
+                    secondCorner = nil
                     splitAxis = game.gameState.teamSplitAxis
-                    camera = .region(draft.coordinateRegion)
+                    centerCameraOnUserLocationIfNeeded()
+                }
+                .onChange(of: location.lastLocation) { _, _ in
+                    centerCameraOnUserLocationIfNeeded()
                 }
                 .onDisappear {
                     location.stopUpdates()
@@ -71,6 +80,7 @@ struct FieldSelectionView: View {
                     Button("Reset selected corners") {
                         firstCorner = nil
                         secondCorner = nil
+                        draft = nil
                     }
                     .buttonStyle(.bordered)
 
@@ -99,10 +109,15 @@ struct FieldSelectionView: View {
                     .disabled(location.lastLocation == nil)
 
                     Button("Confirm play area") {
+                        guard let draft else {
+                            game.statusMessage = "Tap 2 corners to choose a play area first."
+                            return
+                        }
                         game.confirmFieldBounds(draft.clampedValid(), splitAxis: splitAxis)
                     }
                     .buttonStyle(.borderedProminent)
                     .frame(maxWidth: .infinity)
+                    .disabled(draft == nil)
                 }
                 .padding()
             }
@@ -121,6 +136,18 @@ struct FieldSelectionView: View {
         if let firstCorner {
             draft = FieldBounds(cornerA: firstCorner, cornerB: coordinate).clampedValid()
         }
+    }
+
+    private func centerCameraOnUserLocationIfNeeded() {
+        guard hasCenteredOnUserLocation == false else { return }
+        guard let coordinate = location.lastLocation?.coordinate else { return }
+        hasCenteredOnUserLocation = true
+        camera = .region(
+            MKCoordinateRegion(
+                center: coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.004, longitudeDelta: 0.004)
+            )
+        )
     }
 }
 
