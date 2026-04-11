@@ -16,6 +16,9 @@ enum GameConstants {
     static let maxPlayers = 24
     static let minPlayersToStart = 2
 
+    /// Local-only roster entry for single-device testing (not a Multipeer peer).
+    static let soloTestBotPlayerId = UUID(uuidString: "A0A0A0A0-B0B0-4000-8000-000000000001")!
+
     /// Starting health for each player.
     static let playerMaxHealth = 100
 

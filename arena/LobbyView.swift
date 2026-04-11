@@ -35,6 +35,25 @@ struct LobbyView: View {
                         }
                         .disabled(game.gameState.players.count < GameConstants.minPlayersToStart)
                     }
+
+                    Section("Solo testing") {
+                        Button("Start solo test match (1 device)") {
+                            game.startSoloTestMatchFromLobby()
+                        }
+                        .disabled(game.gameState.phase != .lobby)
+
+                        Button("Add solo test opponent") {
+                            game.addSoloTestOpponent()
+                        }
+                        .disabled(game.gameState.phase != .lobby)
+
+                        if game.gameState.players.contains(where: { $0.id == GameConstants.soloTestBotPlayerId }) {
+                            Button("Remove solo test opponent", role: .destructive) {
+                                game.removeSoloTestOpponent()
+                            }
+                            .disabled(game.gameState.phase != .lobby)
+                        }
+                    }
                 }
 
                 Section("Players (\(game.gameState.players.count))") {

@@ -108,6 +108,52 @@ final class GameViewModel: ObservableObject {
         statusMessage = "Place your checkpoint"
     }
 
+    /// Adds a dummy second player so you can start a match on one device (host only, lobby).
+    func addSoloTestOpponent() {
+        guard session.isHost else { return }
+        guard gameState.phase == .lobby else { return }
+        guard gameState.players.contains(where: { $0.id == GameConstants.soloTestBotPlayerId }) == false else {
+            statusMessage = "Solo test opponent already in roster"
+            return
+        }
+        guard gameState.players.count < GameConstants.maxPlayers else { return }
+
+        let bot = PlayerState(
+            id: GameConstants.soloTestBotPlayerId,
+            displayName: "Solo test (dummy)",
+            team: .a,
+            health: GameConstants.playerMaxHealth,
+            isDead: false,
+            respawnAt: nil,
+            hasPlacedCheckpoint: false
+        )
+        gameState.players.append(bot)
+        objectWillChange.send()
+        session.broadcast(.fullState(gameState), reliable: true)
+        statusMessage = "Added solo test opponent — you can start the match"
+    }
+
+    func removeSoloTestOpponent() {
+        guard session.isHost else { return }
+        guard gameState.phase == .lobby else { return }
+        let before = gameState.players.count
+        gameState.players.removeAll { $0.id == GameConstants.soloTestBotPlayerId }
+        guard gameState.players.count != before else { return }
+        objectWillChange.send()
+        session.broadcast(.fullState(gameState), reliable: true)
+        statusMessage = "Removed solo test opponent"
+    }
+
+    /// Adds the dummy opponent if needed, then starts the match (host, lobby).
+    func startSoloTestMatchFromLobby() {
+        guard session.isHost else { return }
+        guard gameState.phase == .lobby else { return }
+        if gameState.players.count < GameConstants.minPlayersToStart {
+            addSoloTestOpponent()
+        }
+        startMatchFromLobby()
+    }
+
     func placeCheckpoint(normalizedX: Double, normalizedY: Double) {
         guard let me = gameState.players.first(where: { $0.id == localPlayerId }) else { return }
         guard gameState.phase == .placingCheckpoints else { return }
@@ -146,6 +192,7 @@ final class GameViewModel: ObservableObject {
     private func tryAdvancePlacingHost() {
         guard session.isHost else { return }
         guard gameState.phase == .placingCheckpoints else { return }
+        ensureSoloTestBotCheckpointPlacedIfNeeded()
         guard GameStateEngine.allCheckpointsPlaced(gameState) else { return }
 
         gameState.phase = .playing
@@ -181,6 +228,31 @@ final class GameViewModel: ObservableObject {
             motion.stop()
             proximity.stop()
             gameplayInfrastructureStarted = false
+        }
+    }
+
+    /// Places a default checkpoint for the local solo-test dummy so one device can finish the placing phase.
+    private func ensureSoloTestBotCheckpointPlacedIfNeeded() {
+        guard let idx = gameState.players.firstIndex(where: { $0.id == GameConstants.soloTestBotPlayerId }) else { return }
+        guard gameState.players[idx].hasPlacedCheckpoint == false else { return }
+
+        let team = gameState.players[idx].team
+        let normalizedX = team == .a ? 0.25 : 0.75
+        let normalizedY = 0.5
+
+        let checkpoint = CheckpointState(
+            id: UUID(),
+            ownerPlayerId: GameConstants.soloTestBotPlayerId,
+            team: team,
+            xp: GameConstants.checkpointMaxXP,
+            normalizedX: normalizedX,
+            normalizedY: normalizedY
+        )
+        gameState.players[idx].hasPlacedCheckpoint = true
+        mergeCheckpoint(checkpoint)
+        session.deliverToEveryone(.checkpointPlaced(playerId: GameConstants.soloTestBotPlayerId, checkpoint: checkpoint), hostPlayerId: gameState.hostPlayerId)
+        if gameState.phase == .placingCheckpoints {
+            session.broadcast(.fullState(gameState), reliable: true)
         }
     }
 
