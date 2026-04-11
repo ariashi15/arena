@@ -91,7 +91,8 @@ enum GameStateEngine {
     }
 
     static func allCheckpointsPlaced(_ state: GameState) -> Bool {
-        state.players.allSatisfy { $0.hasPlacedCheckpoint }
+        guard state.players.isEmpty == false else { return false }
+        return state.players.allSatisfy(\.hasPlacedCheckpoint)
     }
 
     static func normalizedCheckpointIsValid(team: Team, x: Double, y: Double) -> Bool {

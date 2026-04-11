@@ -111,18 +111,37 @@ final class GameSessionManager: NSObject {
     }
 
     /// Clients send to the host; the host should rebroadcast to everyone else.
-    func sendToHost(_ message: WireMessage) {
+    /// - Important: In a multi-peer `MCSession`, peers form a mesh — `connectedPeers` order is undefined.
+    ///   Never use `connectedPeers.first`; resolve the host by `hostPlayerId` from game state.
+    func sendToHost(_ message: WireMessage, hostPlayerId: UUID) {
         guard !isHost else { return }
-        guard let hostPeer = session.connectedPeers.first else { return }
-        send(message, to: [hostPeer], reliable: true)
+        let peers = session.connectedPeers
+        guard peers.isEmpty == false else { return }
+
+        if let hostPeer = peerID(forPlayerId: hostPlayerId) {
+            send(message, to: [hostPeer], reliable: true)
+            return
+        }
+        if peers.count == 1, let only = peers.first {
+            send(message, to: [only], reliable: true)
+            return
+        }
+        if let h = discoveredHost, peers.contains(h) {
+            send(message, to: [h], reliable: true)
+            return
+        }
+        #if DEBUG
+        print("sendToHost: could not resolve host (hostPlayerId \(hostPlayerId)) among \(peers.count) peers")
+        #endif
     }
 
     /// Delivers to all participants: host multicasts; guests forward to the host first.
-    func deliverToEveryone(_ message: WireMessage, reliable: Bool = true) {
+    /// - Parameter hostPlayerId: Authoritative host player id from `GameState.hostPlayerId` (required for guests).
+    func deliverToEveryone(_ message: WireMessage, reliable: Bool = true, hostPlayerId: UUID) {
         if isHost {
             broadcast(message, reliable: reliable)
         } else {
-            sendToHost(message)
+            sendToHost(message, hostPlayerId: hostPlayerId)
         }
     }
 

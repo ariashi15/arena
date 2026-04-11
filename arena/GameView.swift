@@ -50,6 +50,21 @@ struct GameView: View {
     private var placingCard: some View {
         GroupBox("Place your checkpoint") {
             VStack(alignment: .leading, spacing: 12) {
+                GroupBox("Who has locked in") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(game.gameState.players) { p in
+                            HStack(spacing: 8) {
+                                Image(systemName: p.hasPlacedCheckpoint ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(p.hasPlacedCheckpoint ? Color.green : Color.secondary)
+                                Text(p.displayName)
+                                Spacer()
+                                Text(p.hasPlacedCheckpoint ? "Placed" : "Not yet")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
                 Text("Team A uses the left half of the field, Team B the right. Drag to pick a spot (normalized 0–1).")
                     .font(.footnote)
                     .foregroundStyle(.secondary)

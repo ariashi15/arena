@@ -131,7 +131,7 @@ final class GameViewModel: ObservableObject {
         }
 
         mergeCheckpoint(checkpoint)
-        session.deliverToEveryone(.checkpointPlaced(playerId: localPlayerId, checkpoint: checkpoint))
+        session.deliverToEveryone(.checkpointPlaced(playerId: localPlayerId, checkpoint: checkpoint), hostPlayerId: gameState.hostPlayerId)
 
         if session.isHost {
             tryAdvancePlacingHost()
@@ -269,7 +269,7 @@ final class GameViewModel: ObservableObject {
                 gameplayInfrastructureStarted = false
             }
         } else {
-            session.sendToHost(.shootEvent(event))
+            session.sendToHost(.shootEvent(event), hostPlayerId: gameState.hostPlayerId)
         }
     }
 
@@ -292,7 +292,7 @@ final class GameViewModel: ObservableObject {
     }
 
     private func sendHello() {
-        session.deliverToEveryone(.hello(playerId: localPlayerId, displayName: displayName), reliable: true)
+        session.deliverToEveryone(.hello(playerId: localPlayerId, displayName: displayName), reliable: true, hostPlayerId: gameState.hostPlayerId)
     }
 }
 
@@ -309,7 +309,7 @@ extension GameViewModel: GameSessionManagerDelegate {
         Task { @MainActor in
             self.sendHello()
             if self.session.isHost == false {
-                self.session.sendToHost(.requestFullState)
+                self.session.sendToHost(.requestFullState, hostPlayerId: self.gameState.hostPlayerId)
             }
         }
     }
