@@ -96,6 +96,9 @@ struct PlayerState: Identifiable, Codable, Equatable, Sendable {
     /// When `isDead`, respawn becomes available after this instant.
     var respawnAt: Date?
     var hasPlacedCheckpoint: Bool
+    var kills: Int = 0
+    var damageDone: Int = 0
+    var deaths: Int = 0
 }
 
 struct CheckpointState: Identifiable, Codable, Equatable, Sendable {

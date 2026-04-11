@@ -88,6 +88,8 @@ final class GameSessionManager: NSObject {
         session.disconnect()
         peerToPlayer.removeAll()
         currentJoinCode = nil
+        discoveredHost = nil
+        isHost = false
     }
 
     /// Host peer when joining (clients only).
