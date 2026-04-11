@@ -4,7 +4,7 @@
 <dict>
 	<key>NSBonjourServices</key>
 	<array>
-		<string>_arena._tcp.</string>
+		<string>_arena-mp._tcp.</string>
 	</array>
 </dict>
 </plist>
