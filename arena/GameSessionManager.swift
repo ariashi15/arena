@@ -195,15 +195,22 @@ extension GameSessionManager: MCNearbyServiceAdvertiserDelegate {
 
 extension GameSessionManager: MCNearbyServiceBrowserDelegate {
     func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String: String]?) {
-        if info?["role"] == "host" {
-            discoveredHost = peerID
-            inviteDiscoveredHostIfNeeded()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            // Only hosts advertise `serviceType`; joiners browse. Do not require discoveryInfo —
+            // it is often nil on first callback, which previously prevented any invite.
+            if let role = info?["role"], role != "host" { return }
+            self.discoveredHost = peerID
+            self.inviteDiscoveredHostIfNeeded()
         }
     }
 
     func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
-        if peerID == discoveredHost {
-            discoveredHost = nil
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if peerID == self.discoveredHost {
+                self.discoveredHost = nil
+            }
         }
     }
 
