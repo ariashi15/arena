@@ -40,6 +40,32 @@ extension FieldBounds {
         return MKCoordinateRegion(center: center, span: span)
     }
 
+    /// Converts a GPS coordinate into field-local (0...1) coordinates.
+    func normalizedPoint(for coordinate: CLLocationCoordinate2D) -> (x: Double, y: Double)? {
+        let minLat = min(minLatitude, maxLatitude)
+        let maxLat = max(minLatitude, maxLatitude)
+        let minLon = min(minLongitude, maxLongitude)
+        let maxLon = max(minLongitude, maxLongitude)
+        let latSpan = maxLat - minLat
+        let lonSpan = maxLon - minLon
+        guard latSpan > 0, lonSpan > 0 else { return nil }
+        let x = (coordinate.longitude - minLon) / lonSpan
+        let y = (coordinate.latitude - minLat) / latSpan
+        guard x >= 0, x <= 1, y >= 0, y <= 1 else { return nil }
+        return (x, y)
+    }
+
+    /// Converts field-local (0...1) coordinates back to GPS coordinates.
+    func coordinate(normalizedX: Double, normalizedY: Double) -> CLLocationCoordinate2D {
+        let minLat = min(minLatitude, maxLatitude)
+        let maxLat = max(minLatitude, maxLatitude)
+        let minLon = min(minLongitude, maxLongitude)
+        let maxLon = max(minLongitude, maxLongitude)
+        let lat = minLat + (maxLat - minLat) * normalizedY
+        let lon = minLon + (maxLon - minLon) * normalizedX
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
     /// Full play area outline (closed loop): SW → SE → NE → NW.
     var mapPolygonCoordinates: [CLLocationCoordinate2D] {
         let minLat = min(minLatitude, maxLatitude)

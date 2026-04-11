@@ -3,13 +3,13 @@
 //  arena
 //
 
+import MapKit
 import SwiftUI
 
 struct GameView: View {
     @EnvironmentObject private var game: GameViewModel
-
-    @State private var placeX: Double = 0.25
-    @State private var placeY: Double = 0.5
+    @StateObject private var location = LocationManager()
+    @State private var placementCamera: MapCameraPosition = .automatic
     @State private var showingExitConfirmation = false
 
     var body: some View {
@@ -42,15 +42,13 @@ struct GameView: View {
             } message: {
                 Text("You will leave this match and return to the lobby.")
             }
-            .onChange(of: game.gameState.phase) { _, new in
-                if new == .placingCheckpoints {
-                    syncPlacementFromField()
-                }
-            }
             .onAppear {
-                if game.gameState.phase == .placingCheckpoints {
-                    syncPlacementFromField()
-                }
+                location.requestAuthorizationIfNeeded()
+                location.startUpdates()
+                placementCamera = .region(game.gameState.fieldBounds.coordinateRegion)
+            }
+            .onDisappear {
+                location.stopUpdates()
             }
         }
     }
@@ -94,26 +92,49 @@ struct GameView: View {
                 Text(splitInstruction)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                HStack {
-                    Text("X")
-                    Slider(value: $placeX, in: placementXRange)
-                    Text(String(format: "%.2f", placeX))
-                        .monospacedDigit()
-                        .frame(width: 44, alignment: .trailing)
+
+                Map(position: $placementCamera) {
+                    MapPolygon(coordinates: game.gameState.fieldBounds.teamAPolygonCoordinates(splitAxis: game.gameState.teamSplitAxis))
+                        .foregroundStyle(Color.cyan.opacity(0.24))
+                    MapPolygon(coordinates: game.gameState.fieldBounds.teamBPolygonCoordinates(splitAxis: game.gameState.teamSplitAxis))
+                        .foregroundStyle(Color.pink.opacity(0.2))
+                    if let c = location.lastLocation?.coordinate {
+                        Marker("You", coordinate: c)
+                            .tint(.blue)
+                    }
+                    if let checkpointCoordinate {
+                        Marker("Your checkpoint", coordinate: checkpointCoordinate)
+                            .tint(.green)
+                    }
                 }
-                HStack {
-                    Text("Y")
-                    Slider(value: $placeY, in: placementYRange)
-                    Text(String(format: "%.2f", placeY))
-                        .monospacedDigit()
-                        .frame(width: 44, alignment: .trailing)
+                .frame(height: 260)
+                .mapStyle(.standard(elevation: .flat))
+                .mapControls {
+                    MapCompass()
+                    MapUserLocationButton()
                 }
-                Button("Confirm checkpoint") {
-                    game.placeCheckpoint(normalizedX: placeX, normalizedY: placeY)
+
+                if location.authorizationStatus == .denied || location.authorizationStatus == .restricted {
+                    Text("Location access is required to place your checkpoint at your real position.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Button("Place checkpoint at my current location") {
+                    guard let currentCoordinate = location.lastLocation?.coordinate else {
+                        game.statusMessage = "Waiting for your GPS location..."
+                        return
+                    }
+                    guard let point = game.gameState.fieldBounds.normalizedPoint(for: currentCoordinate) else {
+                        game.statusMessage = "You are outside the selected field. Move inside the play area to place your checkpoint."
+                        return
+                    }
+                    game.placeCheckpoint(normalizedX: point.x, normalizedY: point.y)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(
                     game.gameState.players.first(where: { $0.id == game.localPlayerId })?.hasPlacedCheckpoint == true
+                        || location.lastLocation == nil
                 )
             }
         }
@@ -177,51 +198,16 @@ struct GameView: View {
 
     private var splitInstruction: String {
         if game.gameState.teamSplitAxis == .leftRight {
-            return "Stay on your team’s half (A: west/left, B: east/right). X and Y are positions inside the host’s field (0-1)."
+            return "Move around physically, then place your checkpoint at your real location. Team A must be on the west/left half and Team B on east/right."
         }
-        return "Stay on your team’s half (A: top/north, B: bottom/south). X and Y are positions inside the host’s field (0-1)."
+        return "Move around physically, then place your checkpoint at your real location. Team A must be on the top/north half and Team B on bottom/south."
     }
 
-    /// Field-local placement: west→east is X, south→north is Y.
-    private var placementYRange: ClosedRange<Double> {
-        guard let me = game.gameState.players.first(where: { $0.id == game.localPlayerId }) else {
-            return 0...1
+    private var checkpointCoordinate: CLLocationCoordinate2D? {
+        guard let checkpoint = game.gameState.checkpoints.first(where: { $0.ownerPlayerId == game.localPlayerId }) else {
+            return nil
         }
-        let e = 1e-5
-        if game.gameState.teamSplitAxis == .topBottom {
-            if me.team == .a {
-                return (0.5 + e)...1
-            }
-            return 0...(0.5 - e)
-        }
-        return 0...1
-    }
-
-    private var placementXRange: ClosedRange<Double> {
-        guard let me = game.gameState.players.first(where: { $0.id == game.localPlayerId }) else {
-            return 0...1
-        }
-        let e = 1e-5
-        if game.gameState.teamSplitAxis == .leftRight {
-            if me.team == .a {
-                return 0...(0.5 - e)
-            }
-            return (0.5 + e)...1
-        }
-        return 0...1
-    }
-
-    private func syncPlacementFromField() {
-        guard let me = game.gameState.players.first(where: { $0.id == game.localPlayerId }) else { return }
-        let p = GameStateEngine.defaultCheckpointPosition(team: me.team, splitAxis: game.gameState.teamSplitAxis)
-        placeX = p.x.clamped(to: placementXRange)
-        placeY = p.y.clamped(to: placementYRange)
-    }
-}
-
-private extension Double {
-    func clamped(to range: ClosedRange<Double>) -> Double {
-        min(max(self, range.lowerBound), range.upperBound)
+        return game.gameState.fieldBounds.coordinate(normalizedX: checkpoint.normalizedX, normalizedY: checkpoint.normalizedY)
     }
 }
 
