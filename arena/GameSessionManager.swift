@@ -56,7 +56,7 @@ final class GameSessionManager: NSObject {
         stopNetworking()
         isHost = true
         currentJoinCode = Self.makeJoinCode()
-        let info = ["role": "host"]
+        let info = ["role": "host", "roomCode": currentJoinCode ?? ""]
         advertiser = MCNearbyServiceAdvertiser(peer: peerID, discoveryInfo: info, serviceType: serviceType)
         advertiser?.delegate = self
         advertiser?.startAdvertisingPeer()
@@ -65,7 +65,12 @@ final class GameSessionManager: NSObject {
     func startBrowsingForHost(joinCode: String) {
         stopNetworking()
         isHost = false
-        currentJoinCode = Self.normalizeJoinCode(joinCode)
+        let normalized = Self.normalizeJoinCode(joinCode)
+        guard Self.isValidJoinCode(normalized) else {
+            currentJoinCode = nil
+            return
+        }
+        currentJoinCode = normalized
         browser = MCNearbyServiceBrowser(peer: peerID, serviceType: serviceType)
         browser?.delegate = self
         browser?.startBrowsingForPeers()
@@ -185,6 +190,13 @@ final class GameSessionManager: NSObject {
         raw.trimmingCharacters(in: .whitespacesAndNewlines)
             .uppercased()
     }
+
+    private static func isValidJoinCode(_ code: String) -> Bool {
+        guard code.count == 6 else { return false }
+        return code.allSatisfy(
+            { $0.isNumber }
+        )
+    }
 }
 
 extension GameSessionManager: MCSessionDelegate {
@@ -238,6 +250,7 @@ extension GameSessionManager: MCNearbyServiceBrowserDelegate {
             // Only hosts advertise `serviceType`; joiners browse. Do not require discoveryInfo —
             // it is often nil on first callback, which previously prevented any invite.
             if let role = info?["role"], role != "host" { return }
+            guard let roomCode = info?["roomCode"], roomCode == self.currentJoinCode else { return }
             self.discoveredHost = peerID
             self.inviteDiscoveredHostIfNeeded()
         }
