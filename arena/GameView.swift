@@ -10,6 +10,7 @@ struct GameView: View {
 
     @State private var placeX: Double = 0.25
     @State private var placeY: Double = 0.5
+    @State private var showingExitConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -26,6 +27,21 @@ struct GameView: View {
                 .padding()
             }
             .navigationTitle("Arena")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Exit game", role: .destructive) {
+                        showingExitConfirmation = true
+                    }
+                }
+            }
+            .alert("Exit current game?", isPresented: $showingExitConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Exit", role: .destructive) {
+                    game.returnToLobby()
+                }
+            } message: {
+                Text("You will leave this match and return to the lobby.")
+            }
             .onChange(of: game.gameState.phase) { _, new in
                 if new == .placingCheckpoints {
                     syncPlacementFromField()
