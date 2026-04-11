@@ -62,17 +62,18 @@ final class ProximityManager: NSObject, ObservableObject {
         guard isRunning else { return }
         guard peripheralManager.state == .poweredOn else { return }
 
-        let uuidData = withUnsafeBytes(of: playerId.uuid) { Data($0) }
+        // Never use `CBAdvertisementDataServiceDataKey` here. On multiple iOS versions,
+        // CoreBluetooth crashes inside `startAdvertising` with
+        // `-[CBUUID UTF8String]` while serializing that dictionary (nested CBUUID keys).
+        // Scan still filters by `CBAdvertisementDataServiceUUIDsKey`; identity uses local name
+        // (and optional manufacturer payload below if the name is absent in the ad packet).
         var adv: [String: Any] = [
             CBAdvertisementDataServiceUUIDsKey: [serviceUUID],
             CBAdvertisementDataLocalNameKey: playerId.uuidString
         ]
-        // Use NSMutableDictionary for service data. A Swift [CBUUID: Data] bridged to NSDictionary
-        // can trigger an internal CoreBluetooth bug: -[CBUUID UTF8String] (keys mishandled as strings).
+        let uuidData = withUnsafeBytes(of: playerId.uuid) { Data($0) }
         if uuidData.count == 16 {
-            let serviceData = NSMutableDictionary()
-            serviceData[serviceUUID] = uuidData as NSData
-            adv[CBAdvertisementDataServiceDataKey] = serviceData
+            adv[CBAdvertisementDataManufacturerDataKey] = GameConstants.proximityManufacturerData(prefixing: uuidData)
         }
 
         peripheralManager.startAdvertising(adv)
@@ -96,6 +97,9 @@ final class ProximityManager: NSObject, ObservableObject {
             return data.withUnsafeBytes { raw in
                 UUID(uuid: raw.load(as: uuid_t.self))
             }
+        }
+        if let mfg = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data {
+            return GameConstants.playerIdFromProximityManufacturerData(mfg)
         }
         return nil
     }

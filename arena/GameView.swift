@@ -26,6 +26,16 @@ struct GameView: View {
                 .padding()
             }
             .navigationTitle("Arena")
+            .onChange(of: game.gameState.phase) { _, new in
+                if new == .placingCheckpoints {
+                    syncPlacementFromField()
+                }
+            }
+            .onAppear {
+                if game.gameState.phase == .placingCheckpoints {
+                    syncPlacementFromField()
+                }
+            }
         }
     }
 
@@ -65,19 +75,19 @@ struct GameView: View {
                         }
                     }
                 }
-                Text("Team A uses the left half of the field, Team B the right. Drag to pick a spot (normalized 0–1).")
+                Text("Stay on your team’s half (A: west, B: east). X and Y are positions inside the host’s field (0–1).")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 HStack {
                     Text("X")
-                    Slider(value: $placeX, in: 0...1)
+                    Slider(value: $placeX, in: placementXRange)
                     Text(String(format: "%.2f", placeX))
                         .monospacedDigit()
                         .frame(width: 44, alignment: .trailing)
                 }
                 HStack {
                     Text("Y")
-                    Slider(value: $placeY, in: 0...1)
+                    Slider(value: $placeY, in: placementYRange)
                     Text(String(format: "%.2f", placeY))
                         .monospacedDigit()
                         .frame(width: 44, alignment: .trailing)
@@ -147,6 +157,33 @@ struct GameView: View {
 
     private func shortUUID(_ id: UUID) -> String {
         String(id.uuidString.prefix(8))
+    }
+
+    /// Field-local placement: west→east 0…1, split at 0.5 for teams.
+    private var placementYRange: ClosedRange<Double> { 0...1 }
+
+    private var placementXRange: ClosedRange<Double> {
+        guard let me = game.gameState.players.first(where: { $0.id == game.localPlayerId }) else {
+            return 0...1
+        }
+        let e = 1e-5
+        if me.team == .a {
+            return 0...(0.5 - e)
+        }
+        return (0.5 + e)...1
+    }
+
+    private func syncPlacementFromField() {
+        guard let me = game.gameState.players.first(where: { $0.id == game.localPlayerId }) else { return }
+        let p = GameStateEngine.defaultCheckpointPosition(team: me.team)
+        placeX = p.x.clamped(to: placementXRange)
+        placeY = p.y.clamped(to: placementYRange)
+    }
+}
+
+private extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        min(max(self, range.lowerBound), range.upperBound)
     }
 }
 

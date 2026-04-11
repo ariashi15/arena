@@ -15,6 +15,12 @@ struct ContentView: View {
             switch game.gameState.phase {
             case .lobby:
                 LobbyView()
+            case .selectingField:
+                if game.localPlayerId == game.gameState.hostPlayerId {
+                    FieldSelectionView()
+                } else {
+                    WaitingForHostFieldView()
+                }
             case .placingCheckpoints, .playing:
                 GameView()
             case .ended:

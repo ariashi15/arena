@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Arena uses your location to center the map so the host can pick the real-world play area.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_arena-mp._tcp.</string>

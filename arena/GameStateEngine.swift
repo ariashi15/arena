@@ -21,7 +21,8 @@ enum GameStateEngine {
             players: [host],
             checkpoints: [],
             winningTeam: nil,
-            hostPlayerId: hostPlayerId
+            hostPlayerId: hostPlayerId,
+            fieldBounds: .fallback
         )
     }
 
@@ -39,7 +40,8 @@ enum GameStateEngine {
         state.players = players
         state.checkpoints.removeAll()
         state.winningTeam = nil
-        state.phase = .placingCheckpoints
+        state.fieldBounds = .defaultPlayArea
+        state.phase = .selectingField
     }
 
     static func applyShoot(_ state: inout GameState, event: ShootEvent) {
@@ -95,11 +97,18 @@ enum GameStateEngine {
         return state.players.allSatisfy(\.hasPlacedCheckpoint)
     }
 
+    /// `x` and `y` are field-local 0…1 (west→east, south→north). Team A: west half (x less than 0.5).
     static func normalizedCheckpointIsValid(team: Team, x: Double, y: Double) -> Bool {
         guard x >= 0, x <= 1, y >= 0, y <= 1 else { return false }
         switch team {
         case .a: return x < 0.5
         case .b: return x >= 0.5
         }
+    }
+
+    /// Default checkpoint in field-local space (center of each team’s half).
+    static func defaultCheckpointPosition(team: Team) -> (x: Double, y: Double) {
+        let x = team == .a ? 0.25 : 0.75
+        return (x, 0.5)
     }
 }

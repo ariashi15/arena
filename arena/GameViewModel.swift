@@ -76,7 +76,8 @@ final class GameViewModel: ObservableObject {
             ],
             checkpoints: [],
             winningTeam: nil,
-            hostPlayerId: localPlayerId
+            hostPlayerId: localPlayerId,
+            fieldBounds: .fallback
         )
         session.startBrowsingForHost()
         statusMessage = "Looking for a host…"
@@ -105,6 +106,17 @@ final class GameViewModel: ObservableObject {
         GameStateEngine.assignTeamsRandomly(&gameState)
         objectWillChange.send()
         session.broadcast(.hostStartedPlacing(gameState), reliable: true)
+        statusMessage = "Choose the play area on the map"
+    }
+
+    /// Host confirms the field after `selectingField`; everyone moves to checkpoint placement.
+    func confirmFieldBounds(_ bounds: FieldBounds) {
+        guard session.isHost else { return }
+        guard gameState.phase == .selectingField else { return }
+        gameState.fieldBounds = bounds.clampedValid()
+        gameState.phase = .placingCheckpoints
+        objectWillChange.send()
+        session.broadcast(.fieldBoundsConfirmed(gameState), reliable: true)
         statusMessage = "Place your checkpoint"
     }
 
@@ -237,16 +249,15 @@ final class GameViewModel: ObservableObject {
         guard gameState.players[idx].hasPlacedCheckpoint == false else { return }
 
         let team = gameState.players[idx].team
-        let normalizedX = team == .a ? 0.25 : 0.75
-        let normalizedY = 0.5
+        let pos = GameStateEngine.defaultCheckpointPosition(team: team)
 
         let checkpoint = CheckpointState(
             id: UUID(),
             ownerPlayerId: GameConstants.soloTestBotPlayerId,
             team: team,
             xp: GameConstants.checkpointMaxXP,
-            normalizedX: normalizedX,
-            normalizedY: normalizedY
+            normalizedX: pos.x,
+            normalizedY: pos.y
         )
         gameState.players[idx].hasPlacedCheckpoint = true
         mergeCheckpoint(checkpoint)
@@ -411,6 +422,16 @@ extension GameViewModel: GameSessionManagerDelegate {
 
         case let .hostStartedPlacing(state):
             replaceState(state)
+            if state.phase == .selectingField {
+                statusMessage = session.isHost ? "Choose the play area on the map" : "Waiting for host to set the field…"
+            } else {
+                statusMessage = "Place your checkpoint"
+            }
+
+        case let .fieldBoundsConfirmed(state):
+            if session.isHost == false {
+                replaceState(state)
+            }
             statusMessage = "Place your checkpoint"
 
         case let .checkpointPlaced(pid, checkpoint):
