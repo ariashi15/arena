@@ -17,11 +17,32 @@ final class GameViewModel: ObservableObject {
     @Published var pendingJoinRequests: [JoinRequest] = []
     @Published private(set) var shootingIndicatorUntil: Date = .distantPast
     @Published private(set) var underFireIndicatorUntil: Date = .distantPast
+    /// Transient UI: damage the local player just took (checkpoint or HP).
+    @Published private(set) var incomingDamagePop: Int?
+    /// Transient UI: damage the local player just dealt.
+    @Published private(set) var outgoingDamagePop: Int?
     @Published private(set) var healingTargetId: UUID?
     @Published private(set) var healingProgress: TimeInterval = 0
     @Published private(set) var isPhoneLevel: Bool = false
 
     let localPlayerId: UUID
+
+    /// What the local player would hit if they shoot right now (same rules as `buildShootEventIfPossible()`).
+    enum AimTarget: Equatable {
+        case enemy(PlayerState)
+        case enemyCheckpoint(CheckpointState)
+    }
+
+    var currentAimTarget: AimTarget? {
+        guard let event = buildShootEventIfPossible() else { return nil }
+        if let pid = event.damagedPlayerId, let p = gameState.players.first(where: { $0.id == pid }) {
+            return .enemy(p)
+        }
+        if let cid = event.damagedCheckpointId, let c = gameState.checkpoints.first(where: { $0.id == cid }) {
+            return .enemyCheckpoint(c)
+        }
+        return nil
+    }
 
     private let session: GameSessionManager
     private let motion = MotionManager()
@@ -132,6 +153,8 @@ final class GameViewModel: ObservableObject {
         statusMessage = "Disconnected"
         shootingIndicatorUntil = .distantPast
         underFireIndicatorUntil = .distantPast
+        incomingDamagePop = nil
+        outgoingDamagePop = nil
     }
 
     func returnToLobby() {
@@ -215,19 +238,30 @@ final class GameViewModel: ObservableObject {
         statusMessage = "Place your checkpoint"
     }
 
-    private func triggerHitHaptics() {
-        let generator = UIImpactFeedbackGenerator(style: .heavy)
+    private func triggerOutgoingShotHaptic() {
+        let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.prepare()
-        for i in 0..<3 {
-            if i == 0 {
-                generator.impactOccurred(intensity: 1.0)
-            }
-            else {
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.08) {
-                    generator.impactOccurred(intensity: 1.0)
-                }
-            }
+        generator.impactOccurred(intensity: 0.9)
+    }
+
+    private func triggerIncomingDamageHaptic() {
+        let generator = UIImpactFeedbackGenerator(style: .rigid)
+        generator.prepare()
+        generator.impactOccurred(intensity: 1.0)
+    }
+
+    private func flashIncomingDamage(_ amount: Int) {
+        incomingDamagePop = amount
+        triggerIncomingDamageHaptic()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+            self?.incomingDamagePop = nil
+        }
+    }
+
+    private func flashOutgoingDamage(_ amount: Int) {
+        outgoingDamagePop = amount
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) { [weak self] in
+            self?.outgoingDamagePop = nil
         }
     }
 
@@ -525,7 +559,9 @@ final class GameViewModel: ObservableObject {
             return
         }
 
-        triggerHitHaptics()
+        let dealt = max(event.playerDamage, event.checkpointDamage)
+        flashOutgoingDamage(dealt)
+        triggerOutgoingShotHaptic()
 
         if session.isHost {
             let previousState = gameState
@@ -555,8 +591,101 @@ final class GameViewModel: ObservableObject {
             .filter { $0.ownerPlayerId == localPlayerId }
             .reduce(0) { $0 + $1.xp }
 
-        if currentHealth < previousHealth || currentCheckpointXP < previousCheckpointXP {
+        if currentHealth < previousHealth {
             underFireIndicatorUntil = Date().addingTimeInterval(2.5)
+            flashIncomingDamage(previousHealth - currentHealth)
+        }
+        if currentCheckpointXP < previousCheckpointXP {
+            underFireIndicatorUntil = Date().addingTimeInterval(2.5)
+            flashIncomingDamage(previousCheckpointXP - currentCheckpointXP)
+        }
+    }
+
+    private var currentLocalPlayerTeam: Team? {
+        gameState.players.first(where: { $0.id == localPlayerId })?.team
+    }
+
+    private var healableTeammates: [PlayerState] {
+        guard let team = currentLocalPlayerTeam else { return [] }
+        return gameState.players.filter {
+            $0.id != localPlayerId && $0.team == team && ($0.isDead || $0.health < GameConstants.playerMaxHealth)
+        }
+    }
+
+    private func startHealingTickingIfNeeded() {
+        guard healingTargetId != nil else { return }
+        guard healingTickCancellable == nil else { return }
+        healingTickCancellable = Timer.publish(every: 0.2, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.handleHealingTick()
+            }
+    }
+
+    private func handleHealingTick() {
+        guard gameState.phase == .playing else {
+            cancelHealing(resetSelection: false)
+            return
+        }
+        guard let targetId = healingTargetId,
+              let target = gameState.players.first(where: { $0.id == targetId }),
+              let selfPlayer = gameState.players.first(where: { $0.id == localPlayerId }) else {
+            cancelHealing(resetSelection: true)
+            return
+        }
+
+                guard target.isDead || target.health < GameConstants.playerMaxHealth else {
+                        cancelHealing(resetSelection: true)
+                        return
+                }
+
+        guard selfPlayer.isDead == false,
+              selfPlayer.team == target.team,
+              isPhoneLevel,
+              proximity.isPlayerInShootRange(target.id) else {
+            healingStartedAt = nil
+            healingProgress = 0
+            return
+        }
+
+        let now = Date()
+        if healingStartedAt == nil {
+            healingStartedAt = now
+        }
+
+        healingProgress = now.timeIntervalSince(healingStartedAt ?? now)
+        if healingProgress >= GameConstants.healHoldDuration {
+            completeHealing(targetId: targetId)
+        }
+    }
+
+    private func completeHealing(targetId: UUID) {
+        guard let healer = gameState.players.first(where: { $0.id == localPlayerId }) else { return }
+        guard let target = gameState.players.first(where: { $0.id == targetId }) else { return }
+
+        if session.isHost {
+            let changed = GameStateEngine.applyHeal(&gameState, healerId: healer.id, targetId: target.id)
+            if changed {
+                objectWillChange.send()
+                session.broadcast(.fullState(gameState), reliable: true)
+                statusMessage = "Healed \(target.displayName)"
+            }
+        } else {
+            session.sendToHost(.healRequest(healerId: healer.id, targetId: target.id), hostPlayerId: gameState.hostPlayerId)
+            statusMessage = "Healing request sent for \(target.displayName)"
+        }
+
+        cancelHealing(resetSelection: true)
+    }
+
+    private func handleHealingRequest(healerId: UUID, targetId: UUID) {
+        guard session.isHost else { return }
+        let changed = GameStateEngine.applyHeal(&gameState, healerId: healerId, targetId: targetId)
+        guard changed else { return }
+        objectWillChange.send()
+        session.broadcast(.fullState(gameState), reliable: true)
+        if let targetName = gameState.players.first(where: { $0.id == targetId })?.displayName {
+            statusMessage = "Healed \(targetName)"
         }
     }
 

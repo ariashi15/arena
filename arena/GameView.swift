@@ -14,29 +14,32 @@ struct GameView: View {
     @State private var gameplayCamera: MapCameraPosition = .automatic
     @State private var showingExitConfirmation = false
     @State private var lastFollowedCoordinate: CLLocationCoordinate2D?
-    @State private var selectedPlayingTab: PlayingTab = .overview
+    @State private var showMapMode = false
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                playfulBackground
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        header
-                        if game.gameState.phase == .placingCheckpoints {
-                            placingCard
-                        }
-                        if game.gameState.phase == .playing {
-                            playingCard
+            Group {
+                if game.gameState.phase == .playing {
+                    playingBattleLayer
+                } else {
+                    ZStack {
+                        playfulBackground
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 16) {
+                                header
+                                if game.gameState.phase == .placingCheckpoints {
+                                    placingCard
+                                }
+                            }
+                            .padding()
                         }
                     }
-                    .padding()
                 }
             }
-            .navigationTitle("Arena")
+            .navigationTitle(game.gameState.phase == .playing ? "" : "Arena")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button("Exit game", role: .destructive) {
                         showingExitConfirmation = true
                     }
@@ -63,6 +66,9 @@ struct GameView: View {
                 }
                 if phase == .placingCheckpoints {
                     placementCamera = .region(game.gameState.fieldBounds.coordinateRegion)
+                }
+                if phase != .playing {
+                    showMapMode = false
                 }
             }
             .onReceive(location.$lastLocation) { _ in
@@ -215,52 +221,256 @@ struct GameView: View {
         .shadow(color: Color.black.opacity(0.15), radius: 10, x: 0, y: 8)
     }
 
-    private var playingCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Match", systemImage: "gamecontroller.fill")
-                .font(.headline.weight(.bold))
-                .foregroundStyle(.white)
+    // MARK: - Playing (gamified HUD)
 
-            Text("Jump to shoot enemies in Bluetooth range (or connected in demo fallback).")
-                .font(.footnote)
-                .foregroundStyle(.white.opacity(0.9))
+    private var playingBattleLayer: some View {
+        ZStack {
+            playingFieldBackground
+                .ignoresSafeArea()
 
-            Picker("Gameplay tab", selection: $selectedPlayingTab) {
-                ForEach(PlayingTab.allCases) { tab in
-                    Text(tab.title).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            if selectedPlayingTab == .overview {
-                healingSection
-                playerIndicatorsSection
-                gameStatsSection
+            if showMapMode {
+                fullScreenGameplayMap
+                    .ignoresSafeArea(edges: .bottom)
             } else {
-                playingMap
+                VStack(spacing: 0) {
+                    teamCheckpointXPBar
+                        .padding(.horizontal, 16)
+                        .padding(.top, 6)
+
+                    Spacer(minLength: 0)
+
+                    combatCirclesSection
+
+                    Spacer(minLength: 0)
+                }
+
+                damagePopOverlay
             }
 
-            Text(game.proximitySummary)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.75))
+            mapModeToggleButton
         }
-        .padding(16)
-        .background(
-            LinearGradient(
-                colors: [Color(red: 0.15, green: 0.16, blue: 0.42).opacity(0.86), Color(red: 0.16, green: 0.56, blue: 0.43).opacity(0.74)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 8)
     }
 
-    private var playingMap: some View {
+    private var playingFieldBackground: some View {
+        let engaged = game.buildShootEventIfPossible() != nil || game.isGettingShotAt
+        let fill: Color = {
+            if !engaged { return Color(white: 0.93) }
+            guard let side = mapSideTeam else { return Color(white: 0.93) }
+            return side == .a
+                ? Color(red: 0.95, green: 0.45, blue: 0.42)
+                : Color(red: 0.42, green: 0.62, blue: 0.98)
+        }()
+        return fill
+    }
+
+    private var mapSideTeam: Team? {
+        guard let coordinate = location.lastLocation?.coordinate else { return nil }
+        guard let point = game.gameState.fieldBounds.normalizedPoint(for: coordinate) else { return nil }
+        switch game.gameState.teamSplitAxis {
+        case .leftRight:
+            return point.x < 0.5 ? .a : .b
+        case .topBottom:
+            return point.y >= 0.5 ? .a : .b
+        }
+    }
+
+    private var teamCheckpointXPBar: some View {
+        let redTotal = totalCheckpointXP(for: .a)
+        let blueTotal = totalCheckpointXP(for: .b)
+        let sum = max(redTotal + blueTotal, 1)
+        let redFrac = CGFloat(redTotal) / CGFloat(sum)
+
+        return VStack(spacing: 6) {
+            GeometryReader { geo in
+                checkpointBarRow(
+                    width: geo.size.width,
+                    redTotal: redTotal,
+                    blueTotal: blueTotal,
+                    redFraction: redFrac
+                )
+            }
+            .frame(height: 44)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.white.opacity(0.35), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2)
+
+            HStack {
+                Text("Red")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.red.opacity(0.9))
+                Spacer()
+                Text("Blue")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.blue.opacity(0.9))
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+
+    private func totalCheckpointXP(for team: Team) -> Int {
+        game.gameState.checkpoints.filter { $0.team == team }.reduce(0) { $0 + $1.xp }
+    }
+
+    private func checkpointBarRow(width: CGFloat, redTotal: Int, blueTotal: Int, redFraction: CGFloat) -> some View {
+        let redW = max(width * redFraction, 1)
+        let blueW = max(width - redW, 1)
+        return HStack(spacing: 0) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.red.opacity(0.92))
+                Text("\(redTotal)")
+                    .font(.headline.weight(.heavy).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 1)
+            }
+            .frame(width: redW)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.blue.opacity(0.92))
+                Text("\(blueTotal)")
+                    .font(.headline.weight(.heavy).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 1)
+            }
+            .frame(width: blueW)
+        }
+    }
+
+    private var combatCirclesSection: some View {
+        let target = game.currentAimTarget
+        let hasTarget = target != nil
+        let selfPlayer = game.gameState.players.first(where: { $0.id == game.localPlayerId })
+        let maxHP = CGFloat(GameConstants.playerMaxHealth)
+
+        return VStack(spacing: hasTarget ? 18 : 0) {
+            if let selfPlayer {
+                healthCircle(
+                    fraction: CGFloat(selfPlayer.health) / maxHP,
+                    fill: selfPlayer.team == .a ? Color.red : Color.blue,
+                    icon: "heart.fill",
+                    size: hasTarget ? 118 : 140,
+                    label: "You"
+                )
+                .scaleEffect(hasTarget ? 0.88 : 1)
+                .offset(y: hasTarget ? -12 : 0)
+                .animation(.spring(response: 0.38, dampingFraction: 0.78), value: hasTarget)
+            }
+
+            if let target {
+                switch target {
+                case let .enemy(p):
+                    healthCircle(
+                        fraction: CGFloat(p.health) / maxHP,
+                        fill: p.team == .a ? Color.red : Color.blue,
+                        icon: "person.fill",
+                        size: 104,
+                        label: "Opponent"
+                    )
+                    .transition(.scale.combined(with: .opacity))
+                case let .enemyCheckpoint(c):
+                    let frac = CGFloat(c.xp) / CGFloat(GameConstants.checkpointMaxXP)
+                    healthCircle(
+                        fraction: frac,
+                        fill: c.team == .a ? Color.red : Color.blue,
+                        icon: "building.columns.fill",
+                        size: 104,
+                        label: "Checkpoint"
+                    )
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+        }
+        .padding(.bottom, 88)
+    }
+
+    private func healthCircle(
+        fraction: CGFloat,
+        fill: Color,
+        icon: String,
+        size: CGFloat,
+        label: String
+    ) -> some View {
+        let clamped = min(max(fraction, 0), 1)
+
+        return VStack(spacing: 8) {
+            ZStack {
+                Circle()
+                    .fill(Color.black.opacity(0.12))
+                    .frame(width: size, height: size)
+
+                Circle()
+                    .trim(from: 0, to: clamped * 0.999)
+                    .fill(fill)
+                    .frame(width: size * 0.92, height: size * 0.92)
+                    .rotationEffect(.degrees(-90))
+
+                Circle()
+                    .stroke(Color.white.opacity(0.45), lineWidth: 3)
+                    .frame(width: size, height: size)
+
+                Image(systemName: icon)
+                    .font(.system(size: size * 0.26, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
+            }
+            Text(label)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.primary.opacity(0.65))
+        }
+    }
+
+    private var damagePopOverlay: some View {
+        ZStack {
+            if let incoming = game.incomingDamagePop {
+                Text("-\(incoming)")
+                    .font(.system(size: 52, weight: .black, design: .rounded))
+                    .foregroundStyle(.red)
+                    .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 2)
+                    .offset(y: -140)
+                    .transition(.scale(scale: 1.2).combined(with: .opacity))
+                    .animation(.spring(response: 0.35, dampingFraction: 0.65), value: incoming)
+            }
+
+            if let outgoing = game.outgoingDamagePop {
+                Text("-\(outgoing)")
+                    .font(.system(size: 48, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color.yellow)
+                    .shadow(color: .orange.opacity(0.6), radius: 4, x: 0, y: 0)
+                    .offset(x: 90, y: -40)
+                    .transition(.scale.combined(with: .opacity))
+                    .animation(.spring(response: 0.28, dampingFraction: 0.62), value: outgoing)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private var mapModeToggleButton: some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                Button {
+                    showMapMode.toggle()
+                } label: {
+                    Image(systemName: showMapMode ? "heart.fill" : "map.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 58, height: 58)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .shadow(color: .black.opacity(0.18), radius: 6, x: 0, y: 3)
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 20)
+                .padding(.bottom, 28)
+            }
+        }
+    }
+
+    private var fullScreenGameplayMap: some View {
         Map(position: $gameplayCamera) {
             MapPolygon(coordinates: game.gameState.fieldBounds.mapPolygonCoordinates)
                 .foregroundStyle(Color.gray.opacity(0.2))
@@ -283,12 +493,6 @@ struct GameView: View {
                 }
             }
         }
-        .frame(minHeight: 360)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        )
         .mapStyle(.standard(elevation: .flat))
         .mapControls {
             MapCompass()
@@ -597,20 +801,6 @@ struct GameView: View {
                 .offset(x: -140, y: 200)
         }
         .ignoresSafeArea()
-    }
-}
-
-private enum PlayingTab: String, CaseIterable, Identifiable {
-    case overview
-    case map
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .overview: return "Gameplay"
-        case .map: return "Map"
-        }
     }
 }
 
