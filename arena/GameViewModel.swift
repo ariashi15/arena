@@ -80,7 +80,7 @@ final class GameViewModel: ObservableObject {
 
     func joinGame(joinCode: String) {
         let normalizedJoinCode = joinCode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizedJoinCode.isEmpty == false else {
+        guard Self.isValidJoinCode(normalizedJoinCode) else {
             statusMessage = "Enter the host’s join code"
             return
         }
@@ -89,17 +89,7 @@ final class GameViewModel: ObservableObject {
         session.updateIdentity(displayName: displayName)
         gameState = GameState(
             phase: .lobby,
-            players: [
-                PlayerState(
-                    id: localPlayerId,
-                    displayName: displayName,
-                    team: .a,
-                    health: GameConstants.playerMaxHealth,
-                    isDead: false,
-                    respawnAt: nil,
-                    hasPlacedCheckpoint: false
-                )
-            ],
+            players: [],
             checkpoints: [],
             winningTeam: nil,
             hostPlayerId: localPlayerId,
@@ -108,6 +98,11 @@ final class GameViewModel: ObservableObject {
         )
         session.startBrowsingForHost(joinCode: normalizedJoinCode)
         statusMessage = "Looking for a host with code \(normalizedJoinCode.uppercased())…"
+    }
+
+    private static func isValidJoinCode(_ code: String) -> Bool {
+        guard code.count == 6 else { return false }
+        return code.allSatisfy(\.isNumber)
     }
 
     func disconnect() {
