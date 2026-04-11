@@ -14,6 +14,7 @@ final class GameViewModel: ObservableObject {
     @Published var gameState: GameState
     @Published var displayName: String
     @Published var statusMessage: String = ""
+    @Published var pendingJoinRequests: [JoinRequest] = []
 
     let localPlayerId: UUID
 
@@ -50,9 +51,17 @@ final class GameViewModel: ObservableObject {
 
     var currentJoinCode: String? { session.currentJoinCode }
 
+    struct JoinRequest: Identifiable, Equatable {
+        let playerId: UUID
+        let displayName: String
+
+        var id: UUID { playerId }
+    }
+
     func hostGame() {
         session.disconnectAll()
         gameplayInfrastructureStarted = false
+        pendingJoinRequests.removeAll()
         session.updateIdentity(displayName: displayName)
         gameState = GameStateEngine.makeLobby(hostPlayerId: localPlayerId, displayName: displayName)
         session.startHosting()
@@ -95,6 +104,7 @@ final class GameViewModel: ObservableObject {
         tickCancellable?.cancel()
         tickCancellable = nil
         gameplayInfrastructureStarted = false
+        pendingJoinRequests.removeAll()
         motion.stop()
         proximity.stop()
         session.disconnectAll()
@@ -104,6 +114,24 @@ final class GameViewModel: ObservableObject {
     func returnToLobby() {
         disconnect()
         gameState = GameStateEngine.makeLobby(hostPlayerId: localPlayerId, displayName: displayName)
+    }
+
+    func approveJoinRequest(playerId: UUID) {
+        guard session.isHost else { return }
+        guard let index = pendingJoinRequests.firstIndex(where: { $0.playerId == playerId }) else { return }
+        let request = pendingJoinRequests.remove(at: index)
+        upsertPlayerFromHello(id: request.playerId, name: request.displayName)
+        objectWillChange.send()
+        session.broadcast(.fullState(gameState), reliable: true)
+        statusMessage = "Approved \(request.displayName)"
+    }
+
+    func rejectJoinRequest(playerId: UUID) {
+        guard session.isHost else { return }
+        guard let index = pendingJoinRequests.firstIndex(where: { $0.playerId == playerId }) else { return }
+        let request = pendingJoinRequests.remove(at: index)
+        objectWillChange.send()
+        statusMessage = "Rejected \(request.displayName)"
     }
 
     func startMatchFromLobby() {
@@ -404,6 +432,7 @@ extension GameViewModel: GameSessionManagerDelegate {
             self.sendHello()
             if self.session.isHost == false {
                 self.session.sendToHost(.requestFullState, hostPlayerId: self.gameState.hostPlayerId)
+                self.statusMessage = "Waiting for host approval…"
             }
         }
     }
@@ -415,10 +444,14 @@ extension GameViewModel: GameSessionManagerDelegate {
         case let .hello(playerId, name):
             session.registerPeer(peer, playerId: playerId)
             if session.isHost {
-                upsertPlayerFromHello(id: playerId, name: name)
-                session.broadcast(.fullState(gameState), reliable: true)
+                if pendingJoinRequests.contains(where: { $0.playerId == playerId }) == false,
+                   gameState.players.contains(where: { $0.id == playerId }) == false {
+                    pendingJoinRequests.append(JoinRequest(playerId: playerId, displayName: name))
+                    statusMessage = "Join request from \(name)"
+                }
+                objectWillChange.send()
             } else {
-                upsertPlayerFromHello(id: playerId, name: name)
+                statusMessage = "Waiting for host approval…"
             }
 
         case .requestFullState:

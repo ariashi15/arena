@@ -45,6 +45,28 @@ struct LobbyView: View {
                         .disabled(game.gameState.players.count < GameConstants.minPlayersToStart)
                     }
 
+
+                    Section("Pending requests") {
+                        if game.pendingJoinRequests.isEmpty {
+                            Text("No pending join requests")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(game.pendingJoinRequests) { request in
+                                HStack {
+                                    Text(request.displayName)
+                                    Spacer()
+                                    Button("Allow") {
+                                        game.approveJoinRequest(playerId: request.playerId)
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    Button("Deny", role: .destructive) {
+                                        game.rejectJoinRequest(playerId: request.playerId)
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                            }
+                        }
+                    }
                     Section("Solo testing") {
                         Button("Start solo test match (1 device)") {
                             game.startSoloTestMatchFromLobby()
