@@ -207,11 +207,7 @@ struct GameView: View {
         }
         .padding(16)
         .background(
-            LinearGradient(
-                colors: [Color(red: 0.94, green: 0.31, blue: 0.28).opacity(0.78), Color(red: 0.20, green: 0.45, blue: 0.95).opacity(0.72)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
+            .ultraThinMaterial,
             in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
         .overlay(
@@ -241,6 +237,10 @@ struct GameView: View {
 
                     combatCirclesSection
 
+                    healingSection
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 72)
+
                     Spacer(minLength: 0)
                 }
 
@@ -253,14 +253,22 @@ struct GameView: View {
 
     private var playingFieldBackground: some View {
         let engaged = game.buildShootEventIfPossible() != nil || game.isGettingShotAt
-        let fill: Color = {
-            if !engaged { return Color(white: 0.93) }
-            guard let side = mapSideTeam else { return Color(white: 0.93) }
+        let tint: Color = {
+            guard engaged else { return .clear }
+            guard let side = mapSideTeam else { return .clear }
             return side == .a
-                ? Color(red: 0.95, green: 0.45, blue: 0.42)
-                : Color(red: 0.42, green: 0.62, blue: 0.98)
+                ? Color(red: 0.95, green: 0.42, blue: 0.40).opacity(0.18)
+                : Color(red: 0.40, green: 0.60, blue: 0.96).opacity(0.18)
         }()
-        return fill
+
+        return ZStack {
+            LinearGradient(
+                colors: [Color(red: 0.10, green: 0.12, blue: 0.30), Color(red: 0.10, green: 0.46, blue: 0.50)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            tint
+        }
     }
 
     private var mapSideTeam: Team? {
@@ -540,6 +548,13 @@ struct GameView: View {
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(.white)
 
+            if game.isHost {
+                Button("Add test dummy teammate") {
+                    game.prepareSoloHealingTargetForTesting()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
             if healableTeammates.isEmpty {
                 Text("No teammates need healing right now.")
                     .foregroundStyle(.white.opacity(0.85))
@@ -787,18 +802,18 @@ struct GameView: View {
     private var playfulBackground: some View {
         ZStack {
             LinearGradient(
-                colors: [Color(red: 0.07, green: 0.10, blue: 0.24), Color(red: 0.14, green: 0.24, blue: 0.44), Color(red: 0.07, green: 0.40, blue: 0.38)],
+                colors: [Color(red: 0.10, green: 0.12, blue: 0.30), Color(red: 0.10, green: 0.46, blue: 0.50)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
             Circle()
-                .fill(Color.yellow.opacity(0.12))
-                .frame(width: 240, height: 240)
-                .offset(x: 130, y: -210)
+                .fill(Color.white.opacity(0.07))
+                .frame(width: 230, height: 230)
+                .offset(x: 120, y: -200)
             Circle()
-                .fill(Color.pink.opacity(0.12))
-                .frame(width: 190, height: 190)
-                .offset(x: -140, y: 200)
+                .fill(Color(red: 0.92, green: 0.76, blue: 0.42).opacity(0.10))
+                .frame(width: 180, height: 180)
+                .offset(x: -120, y: 190)
         }
         .ignoresSafeArea()
     }

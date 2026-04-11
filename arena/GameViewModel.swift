@@ -320,6 +320,43 @@ final class GameViewModel: ObservableObject {
         startMatchFromLobby()
     }
 
+    /// Host-only helper for one-device healing tests during live gameplay.
+    /// Adds a damaged teammate dummy, then auto-selects it as the healing target.
+    func prepareSoloHealingTargetForTesting() {
+        guard session.isHost else { return }
+        guard gameState.phase == .playing else {
+            statusMessage = "Start the match first to test healing"
+            return
+        }
+        guard gameState.players.count < GameConstants.maxPlayers else {
+            statusMessage = "Max players reached"
+            return
+        }
+        guard let localIndex = gameState.players.firstIndex(where: { $0.id == localPlayerId }) else { return }
+
+        let localTeam = gameState.players[localIndex].team
+        let testHealth = max(20, GameConstants.playerMaxHealth / 3)
+        let existingCount = gameState.players.filter { $0.displayName.hasPrefix("Healing test dummy") }.count
+        let dummyName = "Healing test dummy \(existingCount + 1)"
+        let dummyId = UUID()
+
+        let bot = PlayerState(
+            id: dummyId,
+            displayName: dummyName,
+            team: localTeam,
+            health: testHealth,
+            isDead: false,
+            respawnAt: nil,
+            hasPlacedCheckpoint: true
+        )
+        gameState.players.append(bot)
+
+        selectHealingTarget(playerId: dummyId)
+        objectWillChange.send()
+        session.broadcast(.fullState(gameState), reliable: true)
+        statusMessage = "Added \(dummyName)"
+    }
+
     /// Host-only bypass for quickly testing `GameView` on one device.
     /// Skips field selection/checkpoint placement and enters `.playing` immediately.
     func startGameplayBypassFromLobby() {
@@ -519,6 +556,15 @@ final class GameViewModel: ObservableObject {
         return false
     }
 
+    private func isTeammateInHealRange(_ teammateId: UUID) -> Bool {
+        if teammateId == GameConstants.soloTestBotPlayerId { return true }
+        if proximity.isPlayerInShootRange(teammateId) { return true }
+        if GameConstants.proximityFallbackToAllConnectedPeers {
+            return session.peerID(forPlayerId: teammateId) != nil
+        }
+        return false
+    }
+
     func buildShootEventIfPossible() -> ShootEvent? {
         guard gameState.phase == .playing else { return nil }
         guard let selfPlayer = gameState.players.first(where: { $0.id == localPlayerId }) else { return nil }
@@ -634,103 +680,15 @@ final class GameViewModel: ObservableObject {
             return
         }
 
-                guard target.isDead || target.health < GameConstants.playerMaxHealth else {
-                        cancelHealing(resetSelection: true)
-                        return
-                }
-
-        guard selfPlayer.isDead == false,
-              selfPlayer.team == target.team,
-              isPhoneLevel,
-              proximity.isPlayerInShootRange(target.id) else {
-            healingStartedAt = nil
-            healingProgress = 0
-            return
-        }
-
-        let now = Date()
-        if healingStartedAt == nil {
-            healingStartedAt = now
-        }
-
-        healingProgress = now.timeIntervalSince(healingStartedAt ?? now)
-        if healingProgress >= GameConstants.healHoldDuration {
-            completeHealing(targetId: targetId)
-        }
-    }
-
-    private func completeHealing(targetId: UUID) {
-        guard let healer = gameState.players.first(where: { $0.id == localPlayerId }) else { return }
-        guard let target = gameState.players.first(where: { $0.id == targetId }) else { return }
-
-        if session.isHost {
-            let changed = GameStateEngine.applyHeal(&gameState, healerId: healer.id, targetId: target.id)
-            if changed {
-                objectWillChange.send()
-                session.broadcast(.fullState(gameState), reliable: true)
-                statusMessage = "Healed \(target.displayName)"
-            }
-        } else {
-            session.sendToHost(.healRequest(healerId: healer.id, targetId: target.id), hostPlayerId: gameState.hostPlayerId)
-            statusMessage = "Healing request sent for \(target.displayName)"
-        }
-
-        cancelHealing(resetSelection: true)
-    }
-
-    private func handleHealingRequest(healerId: UUID, targetId: UUID) {
-        guard session.isHost else { return }
-        let changed = GameStateEngine.applyHeal(&gameState, healerId: healerId, targetId: targetId)
-        guard changed else { return }
-        objectWillChange.send()
-        session.broadcast(.fullState(gameState), reliable: true)
-        if let targetName = gameState.players.first(where: { $0.id == targetId })?.displayName {
-            statusMessage = "Healed \(targetName)"
-        }
-    }
-
-    private var currentLocalPlayerTeam: Team? {
-        gameState.players.first(where: { $0.id == localPlayerId })?.team
-    }
-
-    private var healableTeammates: [PlayerState] {
-        guard let team = currentLocalPlayerTeam else { return [] }
-        return gameState.players.filter {
-            $0.id != localPlayerId && $0.team == team && ($0.isDead || $0.health < GameConstants.playerMaxHealth)
-        }
-    }
-
-    private func startHealingTickingIfNeeded() {
-        guard healingTargetId != nil else { return }
-        guard healingTickCancellable == nil else { return }
-        healingTickCancellable = Timer.publish(every: 0.2, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in
-                self?.handleHealingTick()
-            }
-    }
-
-    private func handleHealingTick() {
-        guard gameState.phase == .playing else {
-            cancelHealing(resetSelection: false)
-            return
-        }
-        guard let targetId = healingTargetId,
-              let target = gameState.players.first(where: { $0.id == targetId }),
-              let selfPlayer = gameState.players.first(where: { $0.id == localPlayerId }) else {
+        guard target.isDead || target.health < GameConstants.playerMaxHealth else {
             cancelHealing(resetSelection: true)
             return
         }
 
-                guard target.isDead || target.health < GameConstants.playerMaxHealth else {
-                        cancelHealing(resetSelection: true)
-                        return
-                }
-
         guard selfPlayer.isDead == false,
               selfPlayer.team == target.team,
               isPhoneLevel,
-              proximity.isPlayerInShootRange(target.id) else {
+              isTeammateInHealRange(target.id) else {
             healingStartedAt = nil
             healingProgress = 0
             return
