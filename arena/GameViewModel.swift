@@ -343,13 +343,20 @@ extension GameViewModel: GameSessionManagerDelegate {
 
         case let .checkpointPlaced(pid, checkpoint):
             if pid == localPlayerId { return }
+            // Prefer wire `pid`; fall back to checkpoint.ownerPlayerId if roster lookup ever diverges.
             if let idx = gameState.players.firstIndex(where: { $0.id == pid }) {
+                gameState.players[idx].hasPlacedCheckpoint = true
+            } else if let idx = gameState.players.firstIndex(where: { $0.id == checkpoint.ownerPlayerId }) {
                 gameState.players[idx].hasPlacedCheckpoint = true
             }
             mergeCheckpoint(checkpoint)
             if session.isHost {
                 session.broadcast(.checkpointPlaced(playerId: pid, checkpoint: checkpoint), reliable: true)
                 tryAdvancePlacingHost()
+                // Authoritative snapshot so clients that missed a packet still get flags + checkpoints in sync.
+                if gameState.phase == .placingCheckpoints {
+                    session.broadcast(.fullState(gameState), reliable: true)
+                }
             }
 
         case let .allCheckpointsReady(state):

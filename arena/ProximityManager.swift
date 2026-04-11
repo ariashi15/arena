@@ -67,8 +67,12 @@ final class ProximityManager: NSObject, ObservableObject {
             CBAdvertisementDataServiceUUIDsKey: [serviceUUID],
             CBAdvertisementDataLocalNameKey: playerId.uuidString
         ]
+        // Use NSMutableDictionary for service data. A Swift [CBUUID: Data] bridged to NSDictionary
+        // can trigger an internal CoreBluetooth bug: -[CBUUID UTF8String] (keys mishandled as strings).
         if uuidData.count == 16 {
-            adv[CBAdvertisementDataServiceDataKey] = [serviceUUID: uuidData]
+            let serviceData = NSMutableDictionary()
+            serviceData[serviceUUID] = uuidData as NSData
+            adv[CBAdvertisementDataServiceDataKey] = serviceData
         }
 
         peripheralManager.startAdvertising(adv)
@@ -87,11 +91,39 @@ final class ProximityManager: NSObject, ObservableObject {
            let u = UUID(uuidString: name) {
             return u
         }
-        if let serviceData = advertisementData[CBAdvertisementDataServiceDataKey] as? [CBUUID: Data],
-           let data = serviceData[serviceUUID], data.count == 16 {
+        if let data = serviceDataPayload(from: advertisementData[CBAdvertisementDataServiceDataKey]),
+           data.count == 16 {
             return data.withUnsafeBytes { raw in
                 UUID(uuid: raw.load(as: uuid_t.self))
             }
+        }
+        return nil
+    }
+
+    /// Advertisement service-data may appear as NSDictionary with CBUUID or String keys depending on OS / bridge.
+    private func serviceDataPayload(from raw: Any?) -> Data? {
+        guard let raw else { return nil }
+        if let dict = raw as? [CBUUID: Data] {
+            return dict[serviceUUID]
+        }
+        guard let ns = raw as? NSDictionary else { return nil }
+        if let any = ns.object(forKey: serviceUUID) {
+            if let d = any as? Data { return d }
+            if let d = any as? NSData { return d as Data }
+        }
+        let target = GameConstants.proximityServiceUUIDString.lowercased()
+        for (key, value) in ns {
+            let data: Data?
+            if let d = value as? Data {
+                data = d
+            } else if let d = value as? NSData {
+                data = d as Data
+            } else {
+                data = nil
+            }
+            guard let data else { continue }
+            if let u = key as? CBUUID, u == serviceUUID { return data }
+            if let s = key as? String, s.lowercased() == target { return data }
         }
         return nil
     }
