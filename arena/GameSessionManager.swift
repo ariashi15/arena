@@ -193,9 +193,7 @@ final class GameSessionManager: NSObject {
 
     private static func isValidJoinCode(_ code: String) -> Bool {
         guard code.count == 3 else { return false }
-        return code.allSatisfy(
-            { $0.isNumber }
-        )
+        return code.allSatisfy { $0.isNumber }
     }
 }
 
