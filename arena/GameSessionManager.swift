@@ -26,6 +26,8 @@ final class GameSessionManager: NSObject {
     private var advertiser: MCNearbyServiceAdvertiser?
     private var browser: MCNearbyServiceBrowser?
 
+    private(set) var currentJoinCode: String?
+
     private(set) var isHost: Bool = false
 
     /// MCPeerID string -> player UUID (from hello / roster).
@@ -53,15 +55,17 @@ final class GameSessionManager: NSObject {
     func startHosting() {
         stopNetworking()
         isHost = true
+        currentJoinCode = Self.makeJoinCode()
         let info = ["role": "host"]
         advertiser = MCNearbyServiceAdvertiser(peer: peerID, discoveryInfo: info, serviceType: serviceType)
         advertiser?.delegate = self
         advertiser?.startAdvertisingPeer()
     }
 
-    func startBrowsingForHost() {
+    func startBrowsingForHost(joinCode: String) {
         stopNetworking()
         isHost = false
+        currentJoinCode = Self.normalizeJoinCode(joinCode)
         browser = MCNearbyServiceBrowser(peer: peerID, serviceType: serviceType)
         browser?.delegate = self
         browser?.startBrowsingForPeers()
@@ -78,6 +82,7 @@ final class GameSessionManager: NSObject {
         stopNetworking()
         session.disconnect()
         peerToPlayer.removeAll()
+        currentJoinCode = nil
     }
 
     /// Host peer when joining (clients only).
@@ -86,7 +91,7 @@ final class GameSessionManager: NSObject {
     func inviteDiscoveredHostIfNeeded() {
         guard !isHost, let host = discoveredHost else { return }
         guard session.connectedPeers.contains(host) == false else { return }
-        browser?.invitePeer(host, to: session, withContext: nil, timeout: 30)
+        browser?.invitePeer(host, to: session, withContext: currentJoinCode?.data(using: .utf8), timeout: 30)
     }
 
     // MARK: - Mapping
@@ -171,6 +176,15 @@ final class GameSessionManager: NSObject {
             #endif
         }
     }
+
+    private static func makeJoinCode() -> String {
+        String(format: "%06d", Int.random(in: 0...999_999))
+    }
+
+    private static func normalizeJoinCode(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+    }
 }
 
 extension GameSessionManager: MCSessionDelegate {
@@ -208,6 +222,11 @@ extension GameSessionManager: MCNearbyServiceAdvertiserDelegate {
     }
 
     func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
+        let expected = currentJoinCode?.data(using: .utf8)
+        guard let expected, context == expected else {
+            invitationHandler(false, nil)
+            return
+        }
         invitationHandler(true, session)
     }
 }

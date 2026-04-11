@@ -48,16 +48,23 @@ final class GameViewModel: ObservableObject {
 
     var isHost: Bool { session.isHost }
 
+    var currentJoinCode: String? { session.currentJoinCode }
+
     func hostGame() {
         session.disconnectAll()
         gameplayInfrastructureStarted = false
         session.updateIdentity(displayName: displayName)
         gameState = GameStateEngine.makeLobby(hostPlayerId: localPlayerId, displayName: displayName)
         session.startHosting()
-        statusMessage = "Hosting — waiting for players"
+        statusMessage = "Hosting — share code \(session.currentJoinCode ?? "------")"
     }
 
-    func joinGame() {
+    func joinGame(joinCode: String) {
+        let normalizedJoinCode = joinCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedJoinCode.isEmpty == false else {
+            statusMessage = "Enter the host’s join code"
+            return
+        }
         session.disconnectAll()
         gameplayInfrastructureStarted = false
         session.updateIdentity(displayName: displayName)
@@ -80,8 +87,8 @@ final class GameViewModel: ObservableObject {
             fieldBounds: .fallback,
             teamSplitAxis: .leftRight
         )
-        session.startBrowsingForHost()
-        statusMessage = "Looking for a host…"
+        session.startBrowsingForHost(joinCode: normalizedJoinCode)
+        statusMessage = "Looking for a host with code \(normalizedJoinCode.uppercased())…"
     }
 
     func disconnect() {

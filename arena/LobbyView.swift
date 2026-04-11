@@ -7,6 +7,7 @@ import SwiftUI
 
 struct LobbyView: View {
     @EnvironmentObject private var game: GameViewModel
+    @State private var joinCode: String = ""
 
     var body: some View {
         NavigationStack {
@@ -20,8 +21,12 @@ struct LobbyView: View {
                     Button("Host game") {
                         game.hostGame()
                     }
+                    TextField("Join code", text: $joinCode)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+
                     Button("Join game") {
-                        game.joinGame()
+                        game.joinGame(joinCode: joinCode)
                     }
                     Button("Disconnect", role: .destructive) {
                         game.disconnect()
@@ -30,6 +35,10 @@ struct LobbyView: View {
 
                 if game.isHost {
                     Section("Host") {
+                        if let joinCode = game.currentJoinCode {
+                            Text("Join code: \(joinCode)")
+                                .font(.headline)
+                        }
                         Button("Start match (random teams)") {
                             game.startMatchFromLobby()
                         }
