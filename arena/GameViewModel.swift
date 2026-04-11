@@ -17,6 +17,9 @@ final class GameViewModel: ObservableObject {
     @Published var pendingJoinRequests: [JoinRequest] = []
     @Published private(set) var shootingIndicatorUntil: Date = .distantPast
     @Published private(set) var underFireIndicatorUntil: Date = .distantPast
+    @Published private(set) var healingTargetId: UUID?
+    @Published private(set) var healingProgress: TimeInterval = 0
+    @Published private(set) var isPhoneLevel: Bool = false
 
     let localPlayerId: UUID
 
@@ -25,8 +28,10 @@ final class GameViewModel: ObservableObject {
     private let proximity = ProximityManager()
 
     private var tickCancellable: AnyCancellable?
+    private var healingTickCancellable: AnyCancellable?
     private var subscriptions = Set<AnyCancellable>()
     private var gameplayInfrastructureStarted = false
+    private var healingStartedAt: Date?
 
     var proximitySummary: String {
         let n = proximity.lastRSSIByPlayerId.count
@@ -39,6 +44,15 @@ final class GameViewModel: ObservableObject {
 
     var isGettingShotAt: Bool {
         Date() < underFireIndicatorUntil
+    }
+
+    var healingProgressFraction: Double {
+        guard healingTargetId != nil else { return 0 }
+        return min(healingProgress / GameConstants.healHoldDuration, 1)
+    }
+
+    var isHealingActive: Bool {
+        healingTickCancellable != nil && healingTargetId != nil
     }
 
     init(localPlayerId: UUID = UUID(), displayName: String = UIDevice.current.name) {
@@ -72,6 +86,7 @@ final class GameViewModel: ObservableObject {
         session.disconnectAll()
         gameplayInfrastructureStarted = false
         pendingJoinRequests.removeAll()
+        cancelHealing(resetSelection: true)
         session.updateIdentity(displayName: displayName)
         gameState = GameStateEngine.makeLobby(hostPlayerId: localPlayerId, displayName: displayName)
         session.startHosting()
@@ -110,6 +125,7 @@ final class GameViewModel: ObservableObject {
         tickCancellable = nil
         gameplayInfrastructureStarted = false
         pendingJoinRequests.removeAll()
+        cancelHealing(resetSelection: true)
         motion.stop()
         proximity.stop()
         session.disconnectAll()
@@ -121,6 +137,38 @@ final class GameViewModel: ObservableObject {
     func returnToLobby() {
         disconnect()
         gameState = GameStateEngine.makeLobby(hostPlayerId: localPlayerId, displayName: displayName)
+    }
+
+    func selectHealingTarget(playerId: UUID) {
+        guard let target = healableTeammates.first(where: { $0.id == playerId }) else { return }
+        healingTargetId = target.id
+        healingProgress = 0
+        healingStartedAt = nil
+        statusMessage = "Selected \(target.displayName) for healing"
+    }
+
+    func startHealing() {
+        guard let targetId = healingTargetId,
+              let target = gameState.players.first(where: { $0.id == targetId }) else { return }
+        guard target.team == currentLocalPlayerTeam else { return }
+        guard target.health < GameConstants.playerMaxHealth || target.isDead else {
+            statusMessage = "That teammate is already fully healed"
+            return
+        }
+        healingProgress = 0
+        healingStartedAt = nil
+        statusMessage = "Hold your phone level near \(target.displayName) for \(Int(GameConstants.healHoldDuration)) seconds"
+        startHealingTickingIfNeeded()
+    }
+
+    func cancelHealing(resetSelection: Bool = false) {
+        healingTickCancellable?.cancel()
+        healingTickCancellable = nil
+        healingStartedAt = nil
+        healingProgress = 0
+        if resetSelection {
+            healingTargetId = nil
+        }
     }
 
     func approveJoinRequest(playerId: UUID) {
@@ -404,15 +452,23 @@ final class GameViewModel: ObservableObject {
         let previousState = gameState
         gameState = newValue
         updateUnderFireIndicator(previous: previousState, current: newValue)
+        if let targetId = healingTargetId,
+           let target = newValue.players.first(where: { $0.id == targetId }),
+           target.isDead == false,
+           target.health >= GameConstants.playerMaxHealth {
+            cancelHealing(resetSelection: true)
+        }
         switch newValue.phase {
         case .playing:
             startGameplayInfrastructure()
         case .lobby:
             gameplayInfrastructureStarted = false
+            cancelHealing(resetSelection: true)
         case .ended:
             motion.stop()
             proximity.stop()
             gameplayInfrastructureStarted = false
+            cancelHealing(resetSelection: true)
         default:
             break
         }
@@ -501,6 +557,94 @@ final class GameViewModel: ObservableObject {
 
         if currentHealth < previousHealth || currentCheckpointXP < previousCheckpointXP {
             underFireIndicatorUntil = Date().addingTimeInterval(2.5)
+        }
+    }
+
+    private var currentLocalPlayerTeam: Team? {
+        gameState.players.first(where: { $0.id == localPlayerId })?.team
+    }
+
+    private var healableTeammates: [PlayerState] {
+        guard let team = currentLocalPlayerTeam else { return [] }
+        return gameState.players.filter {
+            $0.id != localPlayerId && $0.team == team && ($0.isDead || $0.health < GameConstants.playerMaxHealth)
+        }
+    }
+
+    private func startHealingTickingIfNeeded() {
+        guard healingTargetId != nil else { return }
+        guard healingTickCancellable == nil else { return }
+        healingTickCancellable = Timer.publish(every: 0.2, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.handleHealingTick()
+            }
+    }
+
+    private func handleHealingTick() {
+        guard gameState.phase == .playing else {
+            cancelHealing(resetSelection: false)
+            return
+        }
+        guard let targetId = healingTargetId,
+              let target = gameState.players.first(where: { $0.id == targetId }),
+              let selfPlayer = gameState.players.first(where: { $0.id == localPlayerId }) else {
+            cancelHealing(resetSelection: true)
+            return
+        }
+
+                guard target.isDead || target.health < GameConstants.playerMaxHealth else {
+                        cancelHealing(resetSelection: true)
+                        return
+                }
+
+        guard selfPlayer.isDead == false,
+              selfPlayer.team == target.team,
+              isPhoneLevel,
+              proximity.isPlayerInShootRange(target.id) else {
+            healingStartedAt = nil
+            healingProgress = 0
+            return
+        }
+
+        let now = Date()
+        if healingStartedAt == nil {
+            healingStartedAt = now
+        }
+
+        healingProgress = now.timeIntervalSince(healingStartedAt ?? now)
+        if healingProgress >= GameConstants.healHoldDuration {
+            completeHealing(targetId: targetId)
+        }
+    }
+
+    private func completeHealing(targetId: UUID) {
+        guard let healer = gameState.players.first(where: { $0.id == localPlayerId }) else { return }
+        guard let target = gameState.players.first(where: { $0.id == targetId }) else { return }
+
+        if session.isHost {
+            let changed = GameStateEngine.applyHeal(&gameState, healerId: healer.id, targetId: target.id)
+            if changed {
+                objectWillChange.send()
+                session.broadcast(.fullState(gameState), reliable: true)
+                statusMessage = "Healed \(target.displayName)"
+            }
+        } else {
+            session.sendToHost(.healRequest(healerId: healer.id, targetId: target.id), hostPlayerId: gameState.hostPlayerId)
+            statusMessage = "Healing request sent for \(target.displayName)"
+        }
+
+        cancelHealing(resetSelection: true)
+    }
+
+    private func handleHealingRequest(healerId: UUID, targetId: UUID) {
+        guard session.isHost else { return }
+        let changed = GameStateEngine.applyHeal(&gameState, healerId: healerId, targetId: targetId)
+        guard changed else { return }
+        objectWillChange.send()
+        session.broadcast(.fullState(gameState), reliable: true)
+        if let targetName = gameState.players.first(where: { $0.id == targetId })?.displayName {
+            statusMessage = "Healed \(targetName)"
         }
     }
 
@@ -609,6 +753,9 @@ extension GameViewModel: GameSessionManagerDelegate {
             replaceState(state)
             statusMessage = "Game on — jump to shoot"
 
+        case let .healRequest(healerId, targetId):
+            handleHealingRequest(healerId: healerId, targetId: targetId)
+
         case let .shootEvent(event):
             guard session.isHost else { return }
             GameStateEngine.applyShoot(&gameState, event: event)
@@ -632,6 +779,12 @@ extension GameViewModel: MotionManagerDelegate {
     nonisolated func motionManagerDidDetectShot(_ manager: MotionManager) {
         Task { @MainActor in
             self.handleShootDetected()
+        }
+    }
+
+    nonisolated func motionManager(_ manager: MotionManager, didUpdateIsPhoneLevel isPhoneLevel: Bool) {
+        Task { @MainActor in
+            self.isPhoneLevel = isPhoneLevel
         }
     }
 }

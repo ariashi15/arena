@@ -133,6 +133,8 @@ enum WireMessage: Codable, Sendable {
     case checkpointPlaced(playerId: UUID, checkpoint: CheckpointState)
     case allCheckpointsReady(GameState)
 
+    case healRequest(healerId: UUID, targetId: UUID)
+
     case shootEvent(ShootEvent)
 
     case gameOver(winningTeam: Team, state: GameState)

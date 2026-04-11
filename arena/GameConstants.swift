@@ -53,6 +53,9 @@ enum GameConstants {
     /// Gameplay map: a checkpoint marker is only shown when GPS says you are within this distance (meters).
     static let checkpointRevealDistanceMeters: Double = 5
 
+    /// Healing requires the healer to stay level and near the target for this long.
+    static let healHoldDuration: TimeInterval = 10
+
     /// Damage applied per successful shot to a player.
     static let playerShotDamage = 10
 

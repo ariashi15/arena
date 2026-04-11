@@ -233,6 +233,7 @@ struct GameView: View {
             .pickerStyle(.segmented)
 
             if selectedPlayingTab == .overview {
+                healingSection
                 playerIndicatorsSection
                 gameStatsSection
             } else {
@@ -317,6 +318,85 @@ struct GameView: View {
                 value: game.isGettingShotAt ? "Yes" : "No",
                 active: game.isGettingShotAt
             )
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var healingSection: some View {
+        let selectedTarget = game.gameState.players.first(where: { $0.id == game.healingTargetId })
+        let healableTeammates = game.gameState.players.filter {
+            $0.id != game.localPlayerId
+            && $0.team == game.gameState.players.first(where: { $0.id == game.localPlayerId })?.team
+            && ($0.isDead || $0.health < GameConstants.playerMaxHealth)
+        }
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Healing")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.white)
+
+            if healableTeammates.isEmpty {
+                Text("No teammates need healing right now.")
+                    .foregroundStyle(.white.opacity(0.85))
+                    .font(.footnote)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(healableTeammates) { player in
+                        HStack(spacing: 8) {
+                            Image(systemName: player.isDead ? "cross.fill" : "heart.fill")
+                                .foregroundStyle(player.isDead ? Color.red : Color.yellow)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(player.displayName)
+                                    .foregroundStyle(.white)
+                                Text(player.isDead ? "Down" : "Damaged")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.72))
+                            }
+                            Spacer()
+                            Button(game.healingTargetId == player.id ? "Selected" : "Select") {
+                                game.selectHealingTarget(playerId: player.id)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(game.healingTargetId == player.id)
+                        }
+                    }
+                }
+            }
+
+            if let selectedTarget {
+                Divider().overlay(Color.white.opacity(0.25))
+
+                Text("Selected: \(selectedTarget.displayName)")
+                    .foregroundStyle(.white)
+                    .font(.footnote.weight(.semibold))
+
+                ProgressView(value: game.healingProgressFraction)
+                    .tint(.yellow)
+
+                Text(game.isPhoneLevel ? "Phone level: yes" : "Phone level: keep your phone flat")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.8))
+
+                Text(game.isHealingActive
+                    ? "Hold steady near the teammate until the bar fills."
+                    : "Tap Start healing, then hold your phone level near them for 10 seconds.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.8))
+
+                HStack {
+                    Button(game.isHealingActive ? "Healing..." : "Start healing") {
+                        game.startHealing()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(game.isHealingActive)
+
+                    Button("Cancel", role: .cancel) {
+                        game.cancelHealing(resetSelection: true)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
         }
         .padding(12)
         .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))

@@ -74,6 +74,20 @@ enum GameStateEngine {
         }
     }
 
+    static func applyHeal(_ state: inout GameState, healerId: UUID, targetId: UUID) -> Bool {
+        guard state.phase == .playing else { return false }
+        guard let healerIndex = state.players.firstIndex(where: { $0.id == healerId }) else { return false }
+        guard let targetIndex = state.players.firstIndex(where: { $0.id == targetId }) else { return false }
+        guard healerId != targetId else { return false }
+        guard state.players[healerIndex].team == state.players[targetIndex].team else { return false }
+        guard state.players[targetIndex].health < GameConstants.playerMaxHealth || state.players[targetIndex].isDead else { return false }
+
+        state.players[targetIndex].health = GameConstants.playerMaxHealth
+        state.players[targetIndex].isDead = false
+        state.players[targetIndex].respawnAt = nil
+        return true
+    }
+
     static func tickRespawns(_ state: inout GameState, now: Date) {
         for i in state.players.indices {
             guard state.players[i].isDead, let until = state.players[i].respawnAt, now >= until else { continue }
