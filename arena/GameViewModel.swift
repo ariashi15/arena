@@ -17,8 +17,29 @@ final class GameViewModel: ObservableObject {
     @Published var pendingJoinRequests: [JoinRequest] = []
     @Published private(set) var shootingIndicatorUntil: Date = .distantPast
     @Published private(set) var underFireIndicatorUntil: Date = .distantPast
+    /// Transient UI: damage the local player just took (checkpoint or HP).
+    @Published private(set) var incomingDamagePop: Int?
+    /// Transient UI: damage the local player just dealt.
+    @Published private(set) var outgoingDamagePop: Int?
 
     let localPlayerId: UUID
+
+    /// What the local player would hit if they shoot right now (same rules as `buildShootEventIfPossible()`).
+    enum AimTarget: Equatable {
+        case enemy(PlayerState)
+        case enemyCheckpoint(CheckpointState)
+    }
+
+    var currentAimTarget: AimTarget? {
+        guard let event = buildShootEventIfPossible() else { return nil }
+        if let pid = event.damagedPlayerId, let p = gameState.players.first(where: { $0.id == pid }) {
+            return .enemy(p)
+        }
+        if let cid = event.damagedCheckpointId, let c = gameState.checkpoints.first(where: { $0.id == cid }) {
+            return .enemyCheckpoint(c)
+        }
+        return nil
+    }
 
     private let session: GameSessionManager
     private let motion = MotionManager()
@@ -116,6 +137,8 @@ final class GameViewModel: ObservableObject {
         statusMessage = "Disconnected"
         shootingIndicatorUntil = .distantPast
         underFireIndicatorUntil = .distantPast
+        incomingDamagePop = nil
+        outgoingDamagePop = nil
     }
 
     func returnToLobby() {
@@ -167,19 +190,30 @@ final class GameViewModel: ObservableObject {
         statusMessage = "Place your checkpoint"
     }
 
-    private func triggerHitHaptics() {
-        let generator = UIImpactFeedbackGenerator(style: .heavy)
+    private func triggerOutgoingShotHaptic() {
+        let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.prepare()
-        for i in 0..<3 {
-            if i == 0 {
-                generator.impactOccurred(intensity: 1.0)
-            }
-            else {
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.08) {
-                    generator.impactOccurred(intensity: 1.0)
-                }
-            }
+        generator.impactOccurred(intensity: 0.9)
+    }
+
+    private func triggerIncomingDamageHaptic() {
+        let generator = UIImpactFeedbackGenerator(style: .rigid)
+        generator.prepare()
+        generator.impactOccurred(intensity: 1.0)
+    }
+
+    private func flashIncomingDamage(_ amount: Int) {
+        incomingDamagePop = amount
+        triggerIncomingDamageHaptic()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+            self?.incomingDamagePop = nil
+        }
+    }
+
+    private func flashOutgoingDamage(_ amount: Int) {
+        outgoingDamagePop = amount
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) { [weak self] in
+            self?.outgoingDamagePop = nil
         }
     }
 
@@ -469,7 +503,9 @@ final class GameViewModel: ObservableObject {
             return
         }
 
-        triggerHitHaptics()
+        let dealt = max(event.playerDamage, event.checkpointDamage)
+        flashOutgoingDamage(dealt)
+        triggerOutgoingShotHaptic()
 
         if session.isHost {
             let previousState = gameState
@@ -499,8 +535,13 @@ final class GameViewModel: ObservableObject {
             .filter { $0.ownerPlayerId == localPlayerId }
             .reduce(0) { $0 + $1.xp }
 
-        if currentHealth < previousHealth || currentCheckpointXP < previousCheckpointXP {
+        if currentHealth < previousHealth {
             underFireIndicatorUntil = Date().addingTimeInterval(2.5)
+            flashIncomingDamage(previousHealth - currentHealth)
+        }
+        if currentCheckpointXP < previousCheckpointXP {
+            underFireIndicatorUntil = Date().addingTimeInterval(2.5)
+            flashIncomingDamage(previousCheckpointXP - currentCheckpointXP)
         }
     }
 
