@@ -147,6 +147,9 @@ final class GameViewModel: ObservableObject {
         guard gameState.players.count <= GameConstants.maxPlayers else { return }
 
         GameStateEngine.assignTeamsRandomly(&gameState)
+        if gameState.players.contains(where: { $0.id == GameConstants.soloTestBotPlayerId }) {
+            forceLocalPlayerOntoTeamA()
+        }
         objectWillChange.send()
         session.broadcast(.hostStartedPlacing(gameState), reliable: true)
         statusMessage = "Choose the play area on the map"
@@ -162,6 +165,31 @@ final class GameViewModel: ObservableObject {
         objectWillChange.send()
         session.broadcast(.fieldBoundsConfirmed(gameState), reliable: true)
         statusMessage = "Place your checkpoint"
+    }
+
+    private func triggerHitHaptics() {
+        let generator = UIImpactFeedbackGenerator(style: .heavy)
+        generator.prepare()
+        for i in 0..<3 {
+            if i == 0 {
+                generator.impactOccurred(intensity: 1.0)
+            }
+            else {
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.08) {
+                    generator.impactOccurred(intensity: 1.0)
+                }
+            }
+        }
+    }
+
+    private func forceLocalPlayerOntoTeamA() {
+        guard let localIdx = gameState.players.firstIndex(where: { $0.id == localPlayerId }) else { return }
+        if gameState.players[localIdx].team == .a { return }
+        if let swapIdx = gameState.players.firstIndex(where: { $0.team == .a }) {
+            gameState.players[swapIdx].team = .b
+        }
+        gameState.players[localIdx].team = .a
     }
 
     /// Adds a dummy second player so you can start a match on one device (host only, lobby).
@@ -393,6 +421,7 @@ final class GameViewModel: ObservableObject {
     // MARK: - Proximity helpers
 
     private func isEnemyPlayerInShootRange(_ enemyId: UUID) -> Bool {
+        if enemyId == GameConstants.soloTestBotPlayerId { return true }
         if proximity.isPlayerInShootRange(enemyId) { return true }
         if GameConstants.proximityFallbackToAllConnectedPeers {
             return session.peerID(forPlayerId: enemyId) != nil
@@ -439,6 +468,8 @@ final class GameViewModel: ObservableObject {
             statusMessage = "No target in range"
             return
         }
+
+        triggerHitHaptics()
 
         if session.isHost {
             let previousState = gameState
