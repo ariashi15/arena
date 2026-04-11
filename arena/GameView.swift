@@ -75,7 +75,7 @@ struct GameView: View {
                         }
                     }
                 }
-                Text("Stay on your team’s half (A: west, B: east). X and Y are positions inside the host’s field (0–1).")
+                Text(splitInstruction)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 HStack {
@@ -159,23 +159,45 @@ struct GameView: View {
         String(id.uuidString.prefix(8))
     }
 
-    /// Field-local placement: west→east 0…1, split at 0.5 for teams.
-    private var placementYRange: ClosedRange<Double> { 0...1 }
+    private var splitInstruction: String {
+        if game.gameState.teamSplitAxis == .leftRight {
+            return "Stay on your team’s half (A: west/left, B: east/right). X and Y are positions inside the host’s field (0-1)."
+        }
+        return "Stay on your team’s half (A: top/north, B: bottom/south). X and Y are positions inside the host’s field (0-1)."
+    }
+
+    /// Field-local placement: west→east is X, south→north is Y.
+    private var placementYRange: ClosedRange<Double> {
+        guard let me = game.gameState.players.first(where: { $0.id == game.localPlayerId }) else {
+            return 0...1
+        }
+        let e = 1e-5
+        if game.gameState.teamSplitAxis == .topBottom {
+            if me.team == .a {
+                return (0.5 + e)...1
+            }
+            return 0...(0.5 - e)
+        }
+        return 0...1
+    }
 
     private var placementXRange: ClosedRange<Double> {
         guard let me = game.gameState.players.first(where: { $0.id == game.localPlayerId }) else {
             return 0...1
         }
         let e = 1e-5
-        if me.team == .a {
-            return 0...(0.5 - e)
+        if game.gameState.teamSplitAxis == .leftRight {
+            if me.team == .a {
+                return 0...(0.5 - e)
+            }
+            return (0.5 + e)...1
         }
-        return (0.5 + e)...1
+        return 0...1
     }
 
     private func syncPlacementFromField() {
         guard let me = game.gameState.players.first(where: { $0.id == game.localPlayerId }) else { return }
-        let p = GameStateEngine.defaultCheckpointPosition(team: me.team)
+        let p = GameStateEngine.defaultCheckpointPosition(team: me.team, splitAxis: game.gameState.teamSplitAxis)
         placeX = p.x.clamped(to: placementXRange)
         placeY = p.y.clamped(to: placementYRange)
     }

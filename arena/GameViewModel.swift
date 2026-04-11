@@ -77,7 +77,8 @@ final class GameViewModel: ObservableObject {
             checkpoints: [],
             winningTeam: nil,
             hostPlayerId: localPlayerId,
-            fieldBounds: .fallback
+            fieldBounds: .fallback,
+            teamSplitAxis: .leftRight
         )
         session.startBrowsingForHost()
         statusMessage = "Looking for a host…"
@@ -110,10 +111,11 @@ final class GameViewModel: ObservableObject {
     }
 
     /// Host confirms the field after `selectingField`; everyone moves to checkpoint placement.
-    func confirmFieldBounds(_ bounds: FieldBounds) {
+    func confirmFieldBounds(_ bounds: FieldBounds, splitAxis: TeamSplitAxis) {
         guard session.isHost else { return }
         guard gameState.phase == .selectingField else { return }
         gameState.fieldBounds = bounds.clampedValid()
+        gameState.teamSplitAxis = splitAxis
         gameState.phase = .placingCheckpoints
         objectWillChange.send()
         session.broadcast(.fieldBoundsConfirmed(gameState), reliable: true)
@@ -170,8 +172,10 @@ final class GameViewModel: ObservableObject {
         guard let me = gameState.players.first(where: { $0.id == localPlayerId }) else { return }
         guard gameState.phase == .placingCheckpoints else { return }
         guard me.hasPlacedCheckpoint == false else { return }
-        guard GameStateEngine.normalizedCheckpointIsValid(team: me.team, x: normalizedX, y: normalizedY) else {
-            statusMessage = "Stay on your side of the field (A: left, B: right)."
+        guard GameStateEngine.normalizedCheckpointIsValid(team: me.team, x: normalizedX, y: normalizedY, splitAxis: gameState.teamSplitAxis) else {
+            statusMessage = gameState.teamSplitAxis == .leftRight
+                ? "Stay on your side of the field (A: left, B: right)."
+                : "Stay on your side of the field (A: top, B: bottom)."
             return
         }
 
@@ -249,7 +253,7 @@ final class GameViewModel: ObservableObject {
         guard gameState.players[idx].hasPlacedCheckpoint == false else { return }
 
         let team = gameState.players[idx].team
-        let pos = GameStateEngine.defaultCheckpointPosition(team: team)
+        let pos = GameStateEngine.defaultCheckpointPosition(team: team, splitAxis: gameState.teamSplitAxis)
 
         let checkpoint = CheckpointState(
             id: UUID(),

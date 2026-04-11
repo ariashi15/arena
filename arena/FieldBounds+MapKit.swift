@@ -7,6 +7,13 @@ import Foundation
 import MapKit
 
 extension FieldBounds {
+    init(cornerA: CLLocationCoordinate2D, cornerB: CLLocationCoordinate2D) {
+        minLatitude = min(cornerA.latitude, cornerB.latitude)
+        maxLatitude = max(cornerA.latitude, cornerB.latitude)
+        minLongitude = min(cornerA.longitude, cornerB.longitude)
+        maxLongitude = max(cornerA.longitude, cornerB.longitude)
+    }
+
     init(region: MKCoordinateRegion) {
         let c = region.center
         let latD = region.span.latitudeDelta
@@ -46,34 +53,58 @@ extension FieldBounds {
         return [sw, se, ne, nw, sw]
     }
 
-    /// Team A (west) / Team B (east) split for overlay (two quads).
-    var teamAPolygonCoordinates: [CLLocationCoordinate2D] {
+    /// Team A / Team B split polygons for overlay.
+    func teamAPolygonCoordinates(splitAxis: TeamSplitAxis) -> [CLLocationCoordinate2D] {
         let minLat = min(minLatitude, maxLatitude)
         let maxLat = max(minLatitude, maxLatitude)
         let minLon = min(minLongitude, maxLongitude)
         let maxLon = max(minLongitude, maxLongitude)
-        let midLon = (minLon + maxLon) / 2
-        return [
-            CLLocationCoordinate2D(latitude: minLat, longitude: minLon),
-            CLLocationCoordinate2D(latitude: minLat, longitude: midLon),
-            CLLocationCoordinate2D(latitude: maxLat, longitude: midLon),
-            CLLocationCoordinate2D(latitude: maxLat, longitude: minLon),
-            CLLocationCoordinate2D(latitude: minLat, longitude: minLon)
-        ]
+        switch splitAxis {
+        case .leftRight:
+            let midLon = (minLon + maxLon) / 2
+            return [
+                CLLocationCoordinate2D(latitude: minLat, longitude: minLon),
+                CLLocationCoordinate2D(latitude: minLat, longitude: midLon),
+                CLLocationCoordinate2D(latitude: maxLat, longitude: midLon),
+                CLLocationCoordinate2D(latitude: maxLat, longitude: minLon),
+                CLLocationCoordinate2D(latitude: minLat, longitude: minLon)
+            ]
+        case .topBottom:
+            let midLat = (minLat + maxLat) / 2
+            return [
+                CLLocationCoordinate2D(latitude: midLat, longitude: minLon),
+                CLLocationCoordinate2D(latitude: midLat, longitude: maxLon),
+                CLLocationCoordinate2D(latitude: maxLat, longitude: maxLon),
+                CLLocationCoordinate2D(latitude: maxLat, longitude: minLon),
+                CLLocationCoordinate2D(latitude: midLat, longitude: minLon)
+            ]
+        }
     }
 
-    var teamBPolygonCoordinates: [CLLocationCoordinate2D] {
+    func teamBPolygonCoordinates(splitAxis: TeamSplitAxis) -> [CLLocationCoordinate2D] {
         let minLat = min(minLatitude, maxLatitude)
         let maxLat = max(minLatitude, maxLatitude)
         let minLon = min(minLongitude, maxLongitude)
         let maxLon = max(minLongitude, maxLongitude)
-        let midLon = (minLon + maxLon) / 2
-        return [
-            CLLocationCoordinate2D(latitude: minLat, longitude: midLon),
-            CLLocationCoordinate2D(latitude: minLat, longitude: maxLon),
-            CLLocationCoordinate2D(latitude: maxLat, longitude: maxLon),
-            CLLocationCoordinate2D(latitude: maxLat, longitude: midLon),
-            CLLocationCoordinate2D(latitude: minLat, longitude: midLon)
-        ]
+        switch splitAxis {
+        case .leftRight:
+            let midLon = (minLon + maxLon) / 2
+            return [
+                CLLocationCoordinate2D(latitude: minLat, longitude: midLon),
+                CLLocationCoordinate2D(latitude: minLat, longitude: maxLon),
+                CLLocationCoordinate2D(latitude: maxLat, longitude: maxLon),
+                CLLocationCoordinate2D(latitude: maxLat, longitude: midLon),
+                CLLocationCoordinate2D(latitude: minLat, longitude: midLon)
+            ]
+        case .topBottom:
+            let midLat = (minLat + maxLat) / 2
+            return [
+                CLLocationCoordinate2D(latitude: minLat, longitude: minLon),
+                CLLocationCoordinate2D(latitude: minLat, longitude: maxLon),
+                CLLocationCoordinate2D(latitude: midLat, longitude: maxLon),
+                CLLocationCoordinate2D(latitude: midLat, longitude: minLon),
+                CLLocationCoordinate2D(latitude: minLat, longitude: minLon)
+            ]
+        }
     }
 }

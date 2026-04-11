@@ -11,21 +11,39 @@ struct FieldSelectionView: View {
     @StateObject private var location = LocationManager()
     @State private var camera: MapCameraPosition = .automatic
     @State private var draft = FieldBounds.fallback
+    @State private var firstCorner: CLLocationCoordinate2D?
+    @State private var secondCorner: CLLocationCoordinate2D?
+    @State private var splitAxis: TeamSplitAxis = .leftRight
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Text("Pan and zoom Apple Maps. The colored overlay matches the current map view—set the area you want, then confirm.")
+                Text("Tap 2 corners on the map to define the play area. Pan/zoom is only for navigation and no longer changes the field.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal)
                     .padding(.top, 8)
 
-                Map(position: $camera) {
-                    MapPolygon(coordinates: draft.teamAPolygonCoordinates)
-                        .foregroundStyle(Color.cyan.opacity(0.28))
-                    MapPolygon(coordinates: draft.teamBPolygonCoordinates)
-                        .foregroundStyle(Color.pink.opacity(0.24))
+                MapReader { proxy in
+                    Map(position: $camera) {
+                        MapPolygon(coordinates: draft.teamAPolygonCoordinates(splitAxis: splitAxis))
+                            .foregroundStyle(Color.cyan.opacity(0.28))
+                        MapPolygon(coordinates: draft.teamBPolygonCoordinates(splitAxis: splitAxis))
+                            .foregroundStyle(Color.pink.opacity(0.24))
+                        if let firstCorner {
+                            Marker("Corner 1", coordinate: firstCorner)
+                        }
+                        if let secondCorner {
+                            Marker("Corner 2", coordinate: secondCorner)
+                        }
+                    }
+                    .simultaneousGesture(
+                        SpatialTapGesture()
+                            .onEnded { value in
+                                guard let coordinate = proxy.convert(value.location, from: .local) else { return }
+                                applyCornerTap(coordinate)
+                            }
+                    )
                 }
                 .mapStyle(.standard(elevation: .flat))
                 .mapControls {
@@ -36,16 +54,26 @@ struct FieldSelectionView: View {
                     location.requestAuthorizationIfNeeded()
                     location.startUpdates()
                     draft = game.gameState.fieldBounds
+                    splitAxis = game.gameState.teamSplitAxis
                     camera = .region(draft.coordinateRegion)
                 }
                 .onDisappear {
                     location.stopUpdates()
                 }
-                .onMapCameraChange(frequency: .continuous) { ctx in
-                    draft = FieldBounds(region: ctx.region)
-                }
 
                 VStack(spacing: 12) {
+                    Picker("Team split", selection: $splitAxis) {
+                        Text("Left / Right").tag(TeamSplitAxis.leftRight)
+                        Text("Top / Bottom").tag(TeamSplitAxis.topBottom)
+                    }
+                    .pickerStyle(.segmented)
+
+                    Button("Reset selected corners") {
+                        firstCorner = nil
+                        secondCorner = nil
+                    }
+                    .buttonStyle(.bordered)
+
                     if location.authorizationStatus == .denied || location.authorizationStatus == .restricted {
                         Text("Location is off—you can still drag the map to choose the field.")
                             .font(.caption)
@@ -71,7 +99,7 @@ struct FieldSelectionView: View {
                     .disabled(location.lastLocation == nil)
 
                     Button("Confirm play area") {
-                        game.confirmFieldBounds(draft.clampedValid())
+                        game.confirmFieldBounds(draft.clampedValid(), splitAxis: splitAxis)
                     }
                     .buttonStyle(.borderedProminent)
                     .frame(maxWidth: .infinity)
@@ -79,6 +107,19 @@ struct FieldSelectionView: View {
                 .padding()
             }
             .navigationTitle("Choose field")
+        }
+    }
+
+    private func applyCornerTap(_ coordinate: CLLocationCoordinate2D) {
+        if firstCorner == nil || (firstCorner != nil && secondCorner != nil) {
+            firstCorner = coordinate
+            secondCorner = nil
+            return
+        }
+
+        secondCorner = coordinate
+        if let firstCorner {
+            draft = FieldBounds(cornerA: firstCorner, cornerB: coordinate).clampedValid()
         }
     }
 }

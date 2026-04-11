@@ -22,7 +22,8 @@ enum GameStateEngine {
             checkpoints: [],
             winningTeam: nil,
             hostPlayerId: hostPlayerId,
-            fieldBounds: .fallback
+            fieldBounds: .fallback,
+            teamSplitAxis: .leftRight
         )
     }
 
@@ -41,6 +42,7 @@ enum GameStateEngine {
         state.checkpoints.removeAll()
         state.winningTeam = nil
         state.fieldBounds = .defaultPlayArea
+        state.teamSplitAxis = .leftRight
         state.phase = .selectingField
     }
 
@@ -97,18 +99,32 @@ enum GameStateEngine {
         return state.players.allSatisfy(\.hasPlacedCheckpoint)
     }
 
-    /// `x` and `y` are field-local 0…1 (west→east, south→north). Team A: west half (x less than 0.5).
-    static func normalizedCheckpointIsValid(team: Team, x: Double, y: Double) -> Bool {
+    /// `x` and `y` are field-local 0…1 (west→east, south→north).
+    static func normalizedCheckpointIsValid(team: Team, x: Double, y: Double, splitAxis: TeamSplitAxis) -> Bool {
         guard x >= 0, x <= 1, y >= 0, y <= 1 else { return false }
-        switch team {
-        case .a: return x < 0.5
-        case .b: return x >= 0.5
+        switch splitAxis {
+        case .leftRight:
+            switch team {
+            case .a: return x < 0.5
+            case .b: return x >= 0.5
+            }
+        case .topBottom:
+            switch team {
+            case .a: return y >= 0.5
+            case .b: return y < 0.5
+            }
         }
     }
 
     /// Default checkpoint in field-local space (center of each team’s half).
-    static func defaultCheckpointPosition(team: Team) -> (x: Double, y: Double) {
-        let x = team == .a ? 0.25 : 0.75
-        return (x, 0.5)
+    static func defaultCheckpointPosition(team: Team, splitAxis: TeamSplitAxis) -> (x: Double, y: Double) {
+        switch splitAxis {
+        case .leftRight:
+            let x = team == .a ? 0.25 : 0.75
+            return (x, 0.5)
+        case .topBottom:
+            let y = team == .a ? 0.75 : 0.25
+            return (0.5, y)
+        }
     }
 }

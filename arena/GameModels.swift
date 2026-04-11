@@ -22,6 +22,18 @@ enum Team: String, Codable, CaseIterable, Sendable {
     }
 }
 
+enum TeamSplitAxis: String, Codable, CaseIterable, Sendable {
+    case leftRight
+    case topBottom
+
+    var displayName: String {
+        switch self {
+        case .leftRight: return "Left / Right"
+        case .topBottom: return "Top / Bottom"
+        }
+    }
+}
+
 enum GamePhase: String, Codable, Sendable {
     case lobby
     /// Host is choosing the play area on the venue map; other players wait.
@@ -32,7 +44,7 @@ enum GamePhase: String, Codable, Sendable {
 }
 
 /// Geographic rectangle for the play area (WGS84). Checkpoint coordinates are **field-local** 0…1:
-/// west→east = X, south→north = Y. Team A uses the **west** half (smaller longitude), Team B the **east** half.
+/// west→east = X, south→north = Y. Team split orientation is stored separately in `GameState.teamSplitAxis`.
 struct FieldBounds: Codable, Equatable, Sendable {
     var minLatitude: Double
     var minLongitude: Double
@@ -105,6 +117,8 @@ struct GameState: Codable, Equatable, Sendable {
     var hostPlayerId: UUID
     /// Geographic play area chosen by the host; checkpoint X/Y are field-local fractions inside this box.
     var fieldBounds: FieldBounds
+    /// How teams are split within the selected field.
+    var teamSplitAxis: TeamSplitAxis
 }
 
 // MARK: - Networking payloads
