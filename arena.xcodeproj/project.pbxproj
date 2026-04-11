@@ -29,9 +29,22 @@
 		2FC4124A2F8ABFB6008960B8 /* arenaUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = arenaUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		19F7A8F02F8AD5A900AD7495 /* Exceptions for "arena" folder in "arena" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 2FC4122F2F8ABFB5008960B8 /* arena */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		2FC412322F8ABFB5008960B8 /* arena */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				19F7A8F02F8AD5A900AD7495 /* Exceptions for "arena" folder in "arena" target */,
+			);
 			path = arena;
 			sourceTree = "<group>";
 		};
@@ -396,9 +409,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"arena/Preview Content\"";
-				DEVELOPMENT_TEAM = 68LADX2Y35;
+				DEVELOPMENT_TEAM = Z4DMLVYQS8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = arena/Info.plist;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Arena uses Bluetooth signal strength to estimate distance to other players.";
 				INFOPLIST_KEY_NSBonjourServices = "_arena-mp._tcp";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Arena connects to nearby players on the local network for multiplayer.";
@@ -412,7 +426,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = co.ariashi.arena;
+				PRODUCT_BUNDLE_IDENTIFIER = co.crystalchen.arena;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -428,9 +442,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"arena/Preview Content\"";
-				DEVELOPMENT_TEAM = 68LADX2Y35;
+				DEVELOPMENT_TEAM = Z4DMLVYQS8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = arena/Info.plist;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Arena uses Bluetooth signal strength to estimate distance to other players.";
 				INFOPLIST_KEY_NSBonjourServices = "_arena-mp._tcp";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Arena connects to nearby players on the local network for multiplayer.";
@@ -444,7 +459,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = co.ariashi.arena;
+				PRODUCT_BUNDLE_IDENTIFIER = co.crystalchen.arena;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
