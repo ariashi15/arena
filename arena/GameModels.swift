@@ -12,8 +12,8 @@ enum Team: String, Codable, CaseIterable, Sendable {
 
     var displayName: String {
         switch self {
-        case .a: return "Team A"
-        case .b: return "Team B"
+        case .a: return "Red"
+        case .b: return "Blue"
         }
     }
 

@@ -15,6 +15,8 @@ final class GameViewModel: ObservableObject {
     @Published var displayName: String
     @Published var statusMessage: String = ""
     @Published var pendingJoinRequests: [JoinRequest] = []
+    @Published private(set) var shootingIndicatorUntil: Date = .distantPast
+    @Published private(set) var underFireIndicatorUntil: Date = .distantPast
 
     let localPlayerId: UUID
 
@@ -29,6 +31,14 @@ final class GameViewModel: ObservableObject {
     var proximitySummary: String {
         let n = proximity.lastRSSIByPlayerId.count
         return "BLE samples: \(n). Shoot threshold ≥ \(GameConstants.shootRSSIThreshold) dBm. BT: \(String(describing: proximity.bluetoothState))."
+    }
+
+    var isShooting: Bool {
+        Date() < shootingIndicatorUntil
+    }
+
+    var isGettingShotAt: Bool {
+        Date() < underFireIndicatorUntil
     }
 
     init(localPlayerId: UUID = UUID(), displayName: String = UIDevice.current.name) {
@@ -109,6 +119,8 @@ final class GameViewModel: ObservableObject {
         proximity.stop()
         session.disconnectAll()
         statusMessage = "Disconnected"
+        shootingIndicatorUntil = .distantPast
+        underFireIndicatorUntil = .distantPast
     }
 
     func returnToLobby() {
@@ -259,8 +271,8 @@ final class GameViewModel: ObservableObject {
         guard me.hasPlacedCheckpoint == false else { return }
         guard GameStateEngine.normalizedCheckpointIsValid(team: me.team, x: normalizedX, y: normalizedY, splitAxis: gameState.teamSplitAxis) else {
             statusMessage = gameState.teamSplitAxis == .leftRight
-                ? "Stay on your side of the field (A: left, B: right)."
-                : "Stay on your side of the field (A: top, B: bottom)."
+                ? "Stay on your side of the field (Red: left, Blue: right)."
+                : "Stay on your side of the field (Red: top, Blue: bottom)."
             return
         }
 
@@ -366,7 +378,9 @@ final class GameViewModel: ObservableObject {
     }
 
     private func replaceState(_ newValue: GameState) {
+        let previousState = gameState
         gameState = newValue
+        updateUnderFireIndicator(previous: previousState, current: newValue)
         switch newValue.phase {
         case .playing:
             startGameplayInfrastructure()
@@ -425,13 +439,16 @@ final class GameViewModel: ObservableObject {
     }
 
     private func handleShootDetected() {
+        shootingIndicatorUntil = Date().addingTimeInterval(1.2)
         guard let event = buildShootEventIfPossible() else {
             statusMessage = "No target in range"
             return
         }
 
         if session.isHost {
+            let previousState = gameState
             GameStateEngine.applyShoot(&gameState, event: event)
+            updateUnderFireIndicator(previous: previousState, current: gameState)
             objectWillChange.send()
             session.broadcast(.fullState(gameState), reliable: true)
             if gameState.phase == .ended, let winner = gameState.winningTeam {
@@ -442,6 +459,22 @@ final class GameViewModel: ObservableObject {
             }
         } else {
             session.sendToHost(.shootEvent(event), hostPlayerId: gameState.hostPlayerId)
+        }
+    }
+
+    private func updateUnderFireIndicator(previous: GameState, current: GameState) {
+        let previousHealth = previous.players.first(where: { $0.id == localPlayerId })?.health ?? GameConstants.playerMaxHealth
+        let currentHealth = current.players.first(where: { $0.id == localPlayerId })?.health ?? GameConstants.playerMaxHealth
+
+        let previousCheckpointXP = previous.checkpoints
+            .filter { $0.ownerPlayerId == localPlayerId }
+            .reduce(0) { $0 + $1.xp }
+        let currentCheckpointXP = current.checkpoints
+            .filter { $0.ownerPlayerId == localPlayerId }
+            .reduce(0) { $0 + $1.xp }
+
+        if currentHealth < previousHealth || currentCheckpointXP < previousCheckpointXP {
+            underFireIndicatorUntil = Date().addingTimeInterval(2.5)
         }
     }
 
