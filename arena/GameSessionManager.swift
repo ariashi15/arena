@@ -88,6 +88,8 @@ final class GameSessionManager: NSObject {
         session.disconnect()
         peerToPlayer.removeAll()
         currentJoinCode = nil
+        discoveredHost = nil
+        isHost = false
     }
 
     /// Host peer when joining (clients only).
@@ -192,10 +194,8 @@ final class GameSessionManager: NSObject {
     }
 
     private static func isValidJoinCode(_ code: String) -> Bool {
-        guard code.count == 6 else { return false }
-        return code.allSatisfy(
-            { $0.isNumber }
-        )
+        guard code.count == 3 else { return false }
+        return code.allSatisfy { $0.isNumber }
     }
 }
 
