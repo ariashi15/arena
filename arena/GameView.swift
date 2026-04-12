@@ -308,11 +308,11 @@ struct GameView: View {
 
             HStack {
                 Text("Red")
-                    .font(.caption.weight(.bold))
+                    .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(.red.opacity(0.9))
                 Spacer()
                 Text("Blue")
-                    .font(.caption.weight(.bold))
+                    .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(.blue.opacity(0.9))
             }
             .padding(.horizontal, 4)
@@ -372,6 +372,7 @@ struct GameView: View {
     private var combatCirclesSection: some View {
         let target = game.currentHUDTarget
         let hasTarget = true
+        let circleSize: CGFloat = 118
         let selfPlayer = game.gameState.players.first(where: { $0.id == game.localPlayerId })
         let maxHP = CGFloat(GameConstants.playerMaxHealth)
 
@@ -392,10 +393,9 @@ struct GameView: View {
                     fraction: selfFraction,
                     fill: selfPlayer.team == .a ? Color.red : Color.blue,
                     icon: selfIcon,
-                    size: hasTarget ? 118 : 140,
+                    size: circleSize,
                     label: selfLabel
                 )
-                .scaleEffect(hasTarget ? 0.88 : 1)
                 .offset(y: hasTarget ? -12 : 0)
                 .animation(.spring(response: 0.38, dampingFraction: 0.78), value: hasTarget)
             }
@@ -406,7 +406,7 @@ struct GameView: View {
                     fraction: progress,
                     fill: Color.green,
                     icon: "cross.fill",
-                    size: 104,
+                    size: circleSize,
                     label: p.displayName
                 )
                 .transition(.scale.combined(with: .opacity))
@@ -415,7 +415,7 @@ struct GameView: View {
                     fraction: CGFloat(p.health) / maxHP,
                     fill: p.team == .a ? Color.red : Color.blue,
                     icon: "person.fill",
-                    size: 104,
+                    size: circleSize,
                     label: "Opponent"
                 )
                 .transition(.scale.combined(with: .opacity))
@@ -425,7 +425,7 @@ struct GameView: View {
                     fraction: frac,
                     fill: themeYellow,
                     icon: "building.columns.fill",
-                    size: 104,
+                    size: circleSize,
                     label: "Checkpoint"
                 )
                 .transition(.scale.combined(with: .opacity))
@@ -434,7 +434,7 @@ struct GameView: View {
                     fraction: 1,
                     fill: Color.gray.opacity(0.45),
                     icon: "scope",
-                    size: 104,
+                    size: circleSize,
                     label: "Nothing in range"
                 )
                 .transition(.opacity)
@@ -478,7 +478,7 @@ struct GameView: View {
                     .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
             }
             Text(label)
-                .font(.caption.weight(.bold))
+                .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(.primary.opacity(0.65))
         }
     }
