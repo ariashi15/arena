@@ -20,6 +20,7 @@ final class GameViewModel: ObservableObject {
     @Published private(set) var localLevelHoldDuration: TimeInterval = 0
     @Published private(set) var localLevelAngleDegrees: Double = 0
     @Published private(set) var isHealingActive: Bool = false
+    @Published private(set) var selectedAimSelection: AimSelection?
     /// Transient UI: damage the local player just took (checkpoint or HP).
     @Published private(set) var incomingDamagePop: Int?
     /// Transient UI: damage the local player just dealt.
@@ -33,20 +34,57 @@ final class GameViewModel: ObservableObject {
         case enemyCheckpoint(CheckpointState)
     }
 
+    enum AimSelection: Equatable {
+        case opponent
+        case checkpoint
+    }
+
+    struct AvailableAimTargets {
+        var opponent: PlayerState?
+        var checkpoint: CheckpointState?
+
+        var hasBoth: Bool {
+            opponent != nil && checkpoint != nil
+        }
+    }
+
     /// What the local player can currently heal by holding the phone level.
     enum HealTarget: Equatable {
         case teammate(PlayerState, progress: Double)
     }
 
     var currentAimTarget: AimTarget? {
-        guard let event = buildShootEventIfPossible() else { return nil }
-        if let pid = event.damagedPlayerId, let p = gameState.players.first(where: { $0.id == pid }) {
-            return .enemy(p)
-        }
-        if let cid = event.damagedCheckpointId, let c = gameState.checkpoints.first(where: { $0.id == cid }) {
-            return .enemyCheckpoint(c)
-        }
-        return nil
+        resolveAimTarget(requireExplicitSelectionWhenMultiple: true)
+    }
+
+    var availableOpponentAimTarget: PlayerState? {
+        availableAimTargets.opponent
+    }
+
+    var availableCheckpointAimTarget: CheckpointState? {
+        availableAimTargets.checkpoint
+    }
+
+    var isOpponentAimSelected: Bool {
+        selectedAimSelection == .opponent && availableAimTargets.opponent != nil
+    }
+
+    var isCheckpointAimSelected: Bool {
+        selectedAimSelection == .checkpoint && availableAimTargets.checkpoint != nil
+    }
+
+    var shouldPromptForAimSelection: Bool {
+        availableAimTargets.hasBoth && selectedAimSelection == nil
+    }
+
+    func selectOpponentAimTarget() {
+        guard availableAimTargets.opponent != nil else { return }
+        selectedAimSelection = .opponent
+    }
+
+    func selectCheckpointAimTarget() {
+        guard availableAimTargets.checkpoint != nil else { return }
+        selectedAimSelection = .checkpoint
     }
 
     var currentHealTarget: HealTarget? {
@@ -106,6 +144,48 @@ final class GameViewModel: ObservableObject {
 
     var isGettingShotAt: Bool {
         Date() < underFireIndicatorUntil
+    }
+
+    private var availableAimTargets: AvailableAimTargets {
+        guard gameState.phase == .playing else { return AvailableAimTargets(opponent: nil, checkpoint: nil) }
+        guard let selfPlayer = gameState.players.first(where: { $0.id == localPlayerId }) else {
+            return AvailableAimTargets(opponent: nil, checkpoint: nil)
+        }
+        guard selfPlayer.isDead == false else { return AvailableAimTargets(opponent: nil, checkpoint: nil) }
+
+        let opponent = gameState.players
+            .filter { $0.team != selfPlayer.team && $0.isDead == false }
+            .first(where: { isEnemyPlayerInShootRange($0.id) })
+
+        let checkpoint = gameState.checkpoints
+            .filter { $0.team != selfPlayer.team && $0.xp > 0 }
+            .first(where: { cp in
+                guard let owner = gameState.players.first(where: { $0.id == cp.ownerPlayerId }) else { return false }
+                return isEnemyCheckpointInRange(ownerId: owner.id)
+            })
+
+        return AvailableAimTargets(opponent: opponent, checkpoint: checkpoint)
+    }
+
+    private func resolveAimTarget(requireExplicitSelectionWhenMultiple: Bool) -> AimTarget? {
+        let targets = availableAimTargets
+        switch (targets.opponent, targets.checkpoint) {
+        case let (opponent?, nil):
+            return .enemy(opponent)
+        case let (nil, checkpoint?):
+            return .enemyCheckpoint(checkpoint)
+        case let (opponent?, checkpoint?):
+            switch selectedAimSelection {
+            case .opponent:
+                return .enemy(opponent)
+            case .checkpoint:
+                return .enemyCheckpoint(checkpoint)
+            case .none:
+                return requireExplicitSelectionWhenMultiple ? nil : .enemy(opponent)
+            }
+        case (nil, nil):
+            return nil
+        }
     }
 
     func toggleHealingMode() {
@@ -202,6 +282,7 @@ final class GameViewModel: ObservableObject {
         outgoingDamagePop = nil
         lastHealingTargetId = nil
         healChannelProgressByPair.removeAll()
+        selectedAimSelection = nil
     }
 
     func returnToLobby() {
@@ -519,6 +600,7 @@ final class GameViewModel: ObservableObject {
             localLevelHoldDuration = 0
             localLevelAngleDegrees = 0
             isHealingActive = false
+            selectedAimSelection = nil
         case .ended:
             motion.stop()
             proximity.stop()
@@ -528,6 +610,7 @@ final class GameViewModel: ObservableObject {
             localLevelHoldDuration = 0
             localLevelAngleDegrees = 0
             isHealingActive = false
+            selectedAimSelection = nil
         default:
             break
         }
@@ -656,14 +739,17 @@ final class GameViewModel: ObservableObject {
     }
 
     func buildShootEventIfPossible() -> ShootEvent? {
-        guard gameState.phase == .playing else { return nil }
-        guard let selfPlayer = gameState.players.first(where: { $0.id == localPlayerId }) else { return nil }
-        guard selfPlayer.isDead == false else { return nil }
-
-        let enemyCPs = gameState.checkpoints.filter { $0.team != selfPlayer.team && $0.xp > 0 }
-        for cp in enemyCPs {
-            guard let owner = gameState.players.first(where: { $0.id == cp.ownerPlayerId }) else { continue }
-            if isEnemyCheckpointInRange(ownerId: owner.id) {
+        switch resolveAimTarget(requireExplicitSelectionWhenMultiple: true) {
+        case let .enemy(player):
+            return ShootEvent(
+                shooterId: localPlayerId,
+                damagedPlayerId: player.id,
+                damagedCheckpointId: nil,
+                playerDamage: GameConstants.playerShotDamage,
+                checkpointDamage: 0
+            )
+        case let .enemyCheckpoint(cp):
+            if gameState.players.contains(where: { $0.id == cp.ownerPlayerId }) {
                 return ShootEvent(
                     shooterId: localPlayerId,
                     damagedPlayerId: nil,
@@ -672,26 +758,16 @@ final class GameViewModel: ObservableObject {
                     checkpointDamage: GameConstants.checkpointShotDamage
                 )
             }
+            return nil
+        case .none:
+            return nil
         }
-
-        let enemies = gameState.players.filter { $0.team != selfPlayer.team && $0.isDead == false }
-        if let hit = enemies.first(where: { isEnemyPlayerInShootRange($0.id) }) {
-            return ShootEvent(
-                shooterId: localPlayerId,
-                damagedPlayerId: hit.id,
-                damagedCheckpointId: nil,
-                playerDamage: GameConstants.playerShotDamage,
-                checkpointDamage: 0
-            )
-        }
-
-        return nil
     }
 
     private func handleShootDetected() {
         shootingIndicatorUntil = Date().addingTimeInterval(1.2)
         guard let event = buildShootEventIfPossible() else {
-            statusMessage = "No target in range"
+            statusMessage = shouldPromptForAimSelection ? "Select Opponent or Checkpoint first" : "No target in range"
             return
         }
 

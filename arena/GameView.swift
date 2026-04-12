@@ -374,8 +374,7 @@ struct GameView: View {
     }
 
     private var combatCirclesSection: some View {
-        let target = game.currentHUDTarget
-        let hasTarget = true
+        let hasTarget = game.currentHealTarget != nil || game.availableOpponentAimTarget != nil || game.availableCheckpointAimTarget != nil
         let circleSize: CGFloat = 118
         let selfPlayer = game.gameState.players.first(where: { $0.id == game.localPlayerId })
         let maxHP = CGFloat(GameConstants.playerMaxHealth)
@@ -404,36 +403,24 @@ struct GameView: View {
                 .animation(.spring(response: 0.38, dampingFraction: 0.78), value: hasTarget)
             }
 
-            switch target {
-            case let .ally(p, progress):
-                healthCircle(
-                    fraction: progress,
-                    fill: Color.green,
-                    icon: "cross.fill",
-                    size: circleSize,
-                    label: p.displayName
-                )
-                .transition(.scale.combined(with: .opacity))
-            case let .enemy(p):
-                healthCircle(
-                    fraction: CGFloat(p.health) / maxHP,
-                    fill: p.team == .a ? Color.red : Color.blue,
-                    icon: "person.fill",
-                    size: circleSize,
-                    label: "Opponent"
-                )
-                .transition(.scale.combined(with: .opacity))
-            case let .enemyCheckpoint(c):
-                let frac = CGFloat(c.xp) / CGFloat(GameConstants.checkpointMaxXP)
-                healthCircle(
-                    fraction: frac,
-                    fill: themeYellow,
-                    icon: "building.columns.fill",
-                    size: circleSize,
-                    label: "Checkpoint"
-                )
-                .transition(.scale.combined(with: .opacity))
-            case .none:
+            if let heal = game.currentHealTarget {
+                switch heal {
+                case let .teammate(p, progress):
+                    healthCircle(
+                        fraction: progress,
+                        fill: Color.green,
+                        icon: "cross.fill",
+                        size: circleSize,
+                        label: p.displayName
+                    )
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+
+            if game.availableOpponentAimTarget != nil || game.availableCheckpointAimTarget != nil {
+                aimSelectionRow(size: circleSize, maxHP: maxHP)
+                    .transition(.scale.combined(with: .opacity))
+            } else if game.currentHealTarget == nil {
                 healthCircle(
                     fraction: 1,
                     fill: Color.gray.opacity(0.45),
@@ -442,6 +429,15 @@ struct GameView: View {
                     label: "Nothing in range"
                 )
                 .transition(.opacity)
+            }
+
+            if game.shouldPromptForAimSelection {
+                Text("Select Opponent or Checkpoint")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.black.opacity(0.28), in: Capsule())
             }
 
             if game.currentHealTarget != nil {
@@ -459,6 +455,42 @@ struct GameView: View {
             }
         }
         .padding(.bottom, 88)
+    }
+
+    private func aimSelectionRow(size: CGFloat, maxHP: CGFloat) -> some View {
+        HStack(spacing: 16) {
+            if let checkpoint = game.availableCheckpointAimTarget {
+                Button {
+                    game.selectCheckpointAimTarget()
+                } label: {
+                    healthCircle(
+                        fraction: CGFloat(checkpoint.xp) / CGFloat(GameConstants.checkpointMaxXP),
+                        fill: themeYellow,
+                        icon: "building.columns.fill",
+                        size: size,
+                        label: "Checkpoint",
+                        selected: game.isCheckpointAimSelected
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let opponent = game.availableOpponentAimTarget {
+                Button {
+                    game.selectOpponentAimTarget()
+                } label: {
+                    healthCircle(
+                        fraction: CGFloat(opponent.health) / maxHP,
+                        fill: opponent.team == .a ? Color.red : Color.blue,
+                        icon: "person.fill",
+                        size: size,
+                        label: "Opponent",
+                        selected: game.isOpponentAimSelected
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     private var healingAngleOverlay: some View {
@@ -504,7 +536,8 @@ struct GameView: View {
         fill: Color,
         icon: String,
         size: CGFloat,
-        label: String
+        label: String,
+        selected: Bool = false
     ) -> some View {
         let clamped = min(max(fraction, 0), 1)
 
@@ -525,7 +558,7 @@ struct GameView: View {
                     .rotationEffect(.degrees(-90))
 
                 Circle()
-                    .stroke(Color.white.opacity(0.45), lineWidth: 3)
+                    .stroke(selected ? Color.white : Color.white.opacity(0.45), lineWidth: selected ? 6 : 3)
                     .frame(width: size, height: size)
 
                 Image(systemName: icon)
