@@ -277,16 +277,25 @@ struct GameView: View {
     private var teamCheckpointXPBar: some View {
         let redTotal = totalCheckpointXP(for: .a)
         let blueTotal = totalCheckpointXP(for: .b)
-        let sum = max(redTotal + blueTotal, 1)
-        let redFrac = CGFloat(redTotal) / CGFloat(sum)
+        let redCount = max(game.gameState.checkpoints.filter { $0.team == .a }.count, 1)
+        let blueCount = max(game.gameState.checkpoints.filter { $0.team == .b }.count, 1)
+        let redMax = redCount * GameConstants.checkpointMaxXP
+        let blueMax = blueCount * GameConstants.checkpointMaxXP
+        let redFrac = CGFloat(redTotal) / CGFloat(max(redMax, 1))
+        let blueFrac = CGFloat(blueTotal) / CGFloat(max(blueMax, 1))
 
         return VStack(spacing: 6) {
+            Text("Checkpoint Health")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white.opacity(0.9))
+
             GeometryReader { geo in
                 checkpointBarRow(
                     width: geo.size.width,
                     redTotal: redTotal,
                     blueTotal: blueTotal,
-                    redFraction: redFrac
+                    redFraction: redFrac,
+                    blueFraction: blueFrac
                 )
             }
             .frame(height: 44)
@@ -314,74 +323,112 @@ struct GameView: View {
         game.gameState.checkpoints.filter { $0.team == team }.reduce(0) { $0 + $1.xp }
     }
 
-    private func checkpointBarRow(width: CGFloat, redTotal: Int, blueTotal: Int, redFraction: CGFloat) -> some View {
-        let redW = max(width * redFraction, 1)
-        let blueW = max(width - redW, 1)
-        return HStack(spacing: 0) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.red.opacity(0.92))
+    private func checkpointBarRow(width: CGFloat, redTotal: Int, blueTotal: Int, redFraction: CGFloat, blueFraction: CGFloat) -> some View {
+        let half = width / 2
+        let redW = max(half * min(max(redFraction, 0), 1), 1)
+        let blueW = max(half * min(max(blueFraction, 0), 1), 1)
+
+        return ZStack {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white.opacity(0.15))
+
+            HStack(spacing: 0) {
+                HStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.red.opacity(0.92))
+                        .frame(width: redW)
+                    Spacer(minLength: 0)
+                }
+                .frame(width: half)
+
+                HStack {
+                    Spacer(minLength: 0)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.blue.opacity(0.92))
+                        .frame(width: blueW)
+                }
+                .frame(width: half)
+            }
+
+            HStack {
                 Text("\(redTotal)")
                     .font(.headline.weight(.heavy).monospacedDigit())
                     .foregroundStyle(.white)
                     .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 1)
-            }
-            .frame(width: redW)
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.blue.opacity(0.92))
+                Spacer()
                 Text("\(blueTotal)")
                     .font(.headline.weight(.heavy).monospacedDigit())
                     .foregroundStyle(.white)
                     .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 1)
             }
-            .frame(width: blueW)
+            .padding(.horizontal, 10)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.45))
+                .frame(width: 2)
         }
     }
 
     private var combatCirclesSection: some View {
         let target = game.currentAimTarget
-        let hasTarget = target != nil
+        let hasTarget = true
         let selfPlayer = game.gameState.players.first(where: { $0.id == game.localPlayerId })
         let maxHP = CGFloat(GameConstants.playerMaxHealth)
 
         return VStack(spacing: hasTarget ? 18 : 0) {
             if let selfPlayer {
+                let (selfFraction, selfIcon, selfLabel): (CGFloat, String, String) = {
+                    if selfPlayer.isDead,
+                       let respawnAt = selfPlayer.respawnAt,
+                       respawnAt > Date() {
+                        let remaining = respawnAt.timeIntervalSinceNow
+                        let progress = 1 - (remaining / GameConstants.respawnDuration)
+                        return (CGFloat(min(max(progress, 0), 1)), "bolt.badge.clock.fill", "Recharging")
+                    }
+                    return (CGFloat(selfPlayer.health) / maxHP, "heart.fill", "You")
+                }()
+
                 healthCircle(
-                    fraction: CGFloat(selfPlayer.health) / maxHP,
+                    fraction: selfFraction,
                     fill: selfPlayer.team == .a ? Color.red : Color.blue,
-                    icon: "heart.fill",
+                    icon: selfIcon,
                     size: hasTarget ? 118 : 140,
-                    label: "You"
+                    label: selfLabel
                 )
                 .scaleEffect(hasTarget ? 0.88 : 1)
                 .offset(y: hasTarget ? -12 : 0)
                 .animation(.spring(response: 0.38, dampingFraction: 0.78), value: hasTarget)
             }
 
-            if let target {
-                switch target {
-                case let .enemy(p):
-                    healthCircle(
-                        fraction: CGFloat(p.health) / maxHP,
-                        fill: p.team == .a ? Color.red : Color.blue,
-                        icon: "person.fill",
-                        size: 104,
-                        label: "Opponent"
-                    )
-                    .transition(.scale.combined(with: .opacity))
-                case let .enemyCheckpoint(c):
-                    let frac = CGFloat(c.xp) / CGFloat(GameConstants.checkpointMaxXP)
-                    healthCircle(
-                        fraction: frac,
-                        fill: c.team == .a ? Color.red : Color.blue,
-                        icon: "building.columns.fill",
-                        size: 104,
-                        label: "Checkpoint"
-                    )
-                    .transition(.scale.combined(with: .opacity))
-                }
+            switch target {
+            case let .enemy(p):
+                healthCircle(
+                    fraction: CGFloat(p.health) / maxHP,
+                    fill: p.team == .a ? Color.red : Color.blue,
+                    icon: "person.fill",
+                    size: 104,
+                    label: "Opponent"
+                )
+                .transition(.scale.combined(with: .opacity))
+            case let .enemyCheckpoint(c):
+                let frac = CGFloat(c.xp) / CGFloat(GameConstants.checkpointMaxXP)
+                healthCircle(
+                    fraction: frac,
+                    fill: themeYellow,
+                    icon: "building.columns.fill",
+                    size: 104,
+                    label: "Checkpoint"
+                )
+                .transition(.scale.combined(with: .opacity))
+            case .none:
+                healthCircle(
+                    fraction: 1,
+                    fill: Color.gray.opacity(0.45),
+                    icon: "scope",
+                    size: 104,
+                    label: "Nothing in range"
+                )
+                .transition(.opacity)
             }
         }
         .padding(.bottom, 88)
@@ -403,9 +450,13 @@ struct GameView: View {
                     .frame(width: size, height: size)
 
                 Circle()
-                    .trim(from: 0, to: clamped * 0.999)
-                    .fill(fill)
-                    .frame(width: size * 0.92, height: size * 0.92)
+                    .stroke(Color.white.opacity(0.2), lineWidth: size * 0.12)
+                    .frame(width: size * 0.88, height: size * 0.88)
+
+                Circle()
+                    .trim(from: 0, to: clamped)
+                    .stroke(fill, style: StrokeStyle(lineWidth: size * 0.12, lineCap: .round))
+                    .frame(width: size * 0.88, height: size * 0.88)
                     .rotationEffect(.degrees(-90))
 
                 Circle()
@@ -421,6 +472,10 @@ struct GameView: View {
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.primary.opacity(0.65))
         }
+    }
+
+    private var themeYellow: Color {
+        Color(red: 0.9, green: 0.75, blue: 0.4)
     }
 
     private var damagePopOverlay: some View {
