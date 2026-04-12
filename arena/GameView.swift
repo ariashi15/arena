@@ -370,7 +370,7 @@ struct GameView: View {
     }
 
     private var combatCirclesSection: some View {
-        let target = game.currentAimTarget
+        let target = game.currentHUDTarget
         let hasTarget = true
         let selfPlayer = game.gameState.players.first(where: { $0.id == game.localPlayerId })
         let maxHP = CGFloat(GameConstants.playerMaxHealth)
@@ -401,6 +401,15 @@ struct GameView: View {
             }
 
             switch target {
+            case let .ally(p, progress):
+                healthCircle(
+                    fraction: progress,
+                    fill: Color.green,
+                    icon: "cross.fill",
+                    size: 104,
+                    label: p.displayName
+                )
+                .transition(.scale.combined(with: .opacity))
             case let .enemy(p):
                 healthCircle(
                     fraction: CGFloat(p.health) / maxHP,
@@ -446,7 +455,7 @@ struct GameView: View {
         return VStack(spacing: 8) {
             ZStack {
                 Circle()
-                    .fill(Color.black.opacity(0.12))
+                    .fill(fill.opacity(0.16))
                     .frame(width: size, height: size)
 
                 Circle()

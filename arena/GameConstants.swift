@@ -50,6 +50,15 @@ enum GameConstants {
     /// Starting XP for each checkpoint.
     static let checkpointMaxXP = 100
 
+    /// Seconds a teammate must keep the phone level to fully heal another player.
+    static let healChannelDuration: TimeInterval = 10
+
+    /// Passive self-heal while alive when not actively healed by a teammate.
+    static let passiveRegenPerSecond = 1
+
+    /// Tolerance for the phone-level check used to channel healing.
+    static let healLevelToleranceDegrees: Double = 8
+
     /// Gameplay map: a checkpoint marker is only shown when GPS says you are within this distance (meters).
     static let checkpointRevealDistanceMeters: Double = 5
 

@@ -8,6 +8,7 @@ import CoreMotion
 
 protocol MotionManagerDelegate: AnyObject {
     func motionManagerDidDetectShot(_ manager: MotionManager)
+    func motionManager(_ manager: MotionManager, didUpdateLeveling isLeveling: Bool, heldDuration: TimeInterval)
 }
 
 /// Detects a jump-like impulse using user acceleration (debounced).
@@ -24,6 +25,7 @@ final class MotionManager {
 
     private var lastShotDate: Date?
     private let debounce = GameConstants.shotMotionDebounce
+    private var levelStartDate: Date?
 
     /// Minimum peak |userAcceleration| (roughly in g) to count as a jump (gravity removed).
     private let jumpThreshold: Double = 1.85
@@ -39,7 +41,7 @@ final class MotionManager {
             motion.deviceMotionUpdateInterval = 1.0 / 60.0
             motion.startDeviceMotionUpdates(to: queue) { [weak self] motionData, _ in
                 guard let self, let motionData else { return }
-                self.process(userAccel: motionData.userAcceleration)
+                self.process(deviceMotion: motionData)
             }
         } else if motion.isAccelerometerAvailable {
             usesRawAccelerometer = true
@@ -54,6 +56,32 @@ final class MotionManager {
     func stop() {
         motion.stopDeviceMotionUpdates()
         motion.stopAccelerometerUpdates()
+        levelStartDate = nil
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.motionManager(self, didUpdateLeveling: false, heldDuration: 0)
+        }
+    }
+
+    private func process(deviceMotion: CMDeviceMotion) {
+        process(userAccel: deviceMotion.userAcceleration)
+
+        let tolerance = GameConstants.healLevelToleranceDegrees * .pi / 180
+        let isLeveling = abs(deviceMotion.attitude.pitch) <= tolerance && abs(deviceMotion.attitude.roll) <= tolerance
+
+        if isLeveling {
+            if levelStartDate == nil {
+                levelStartDate = Date()
+            }
+        } else {
+            levelStartDate = nil
+        }
+
+        let held = levelStartDate.map { Date().timeIntervalSince($0) } ?? 0
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.motionManager(self, didUpdateLeveling: isLeveling, heldDuration: held)
+        }
     }
 
     private func process(userAccel: CMAcceleration) {

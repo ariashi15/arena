@@ -17,6 +17,7 @@ final class GameViewModel: ObservableObject {
     @Published var pendingJoinRequests: [JoinRequest] = []
     @Published private(set) var shootingIndicatorUntil: Date = .distantPast
     @Published private(set) var underFireIndicatorUntil: Date = .distantPast
+    @Published private(set) var localLevelHoldDuration: TimeInterval = 0
     /// Transient UI: damage the local player just took (checkpoint or HP).
     @Published private(set) var incomingDamagePop: Int?
     /// Transient UI: damage the local player just dealt.
@@ -30,6 +31,11 @@ final class GameViewModel: ObservableObject {
         case enemyCheckpoint(CheckpointState)
     }
 
+    /// What the local player can currently heal by holding the phone level.
+    enum HealTarget: Equatable {
+        case teammate(PlayerState, progress: Double)
+    }
+
     var currentAimTarget: AimTarget? {
         guard let event = buildShootEventIfPossible() else { return nil }
         if let pid = event.damagedPlayerId, let p = gameState.players.first(where: { $0.id == pid }) {
@@ -41,13 +47,51 @@ final class GameViewModel: ObservableObject {
         return nil
     }
 
+    var currentHealTarget: HealTarget? {
+        guard let target = healableTeammateInRange else { return nil }
+        let progress = min(max(localLevelHoldDuration / GameConstants.healChannelDuration, 0), 1)
+        return .teammate(target, progress: progress)
+    }
+
+    var currentHUDTarget: CurrentHUDTarget? {
+        if let heal = currentHealTarget {
+            switch heal {
+            case let .teammate(player, progress):
+                return .ally(player, progress: progress)
+            }
+        }
+
+        if let aim = currentAimTarget {
+            switch aim {
+            case let .enemy(player):
+                return .enemy(player)
+            case let .enemyCheckpoint(checkpoint):
+                return .enemyCheckpoint(checkpoint)
+            }
+        }
+        return nil
+    }
+
+    enum CurrentHUDTarget: Equatable {
+        case ally(PlayerState, progress: Double)
+        case enemy(PlayerState)
+        case enemyCheckpoint(CheckpointState)
+    }
+
     private let session: GameSessionManager
     private let motion = MotionManager()
     private let proximity = ProximityManager()
+    private var healChannelProgressByPair: [HealChannelKey: TimeInterval] = [:]
+    private var lastHealingTargetId: UUID?
 
     private var tickCancellable: AnyCancellable?
     private var subscriptions = Set<AnyCancellable>()
     private var gameplayInfrastructureStarted = false
+
+    private struct HealChannelKey: Hashable {
+        let healerId: UUID
+        let healedPlayerId: UUID
+    }
 
     var proximitySummary: String {
         let n = proximity.lastRSSIByPlayerId.count
@@ -137,8 +181,11 @@ final class GameViewModel: ObservableObject {
         statusMessage = "Disconnected"
         shootingIndicatorUntil = .distantPast
         underFireIndicatorUntil = .distantPast
+        localLevelHoldDuration = 0
         incomingDamagePop = nil
         outgoingDamagePop = nil
+        lastHealingTargetId = nil
+        healChannelProgressByPair.removeAll()
     }
 
     func returnToLobby() {
@@ -387,6 +434,14 @@ final class GameViewModel: ObservableObject {
 
     private func handleTick() {
         GameStateEngine.tickRespawns(&gameState, now: Date())
+
+        if gameState.phase == .playing {
+            if session.isHost {
+                applyPassiveRegeneration()
+            }
+            updateHealingHeartbeat()
+        }
+
         objectWillChange.send()
         guard gameState.phase == .playing else { return }
         guard session.isHost else { return }
@@ -443,10 +498,16 @@ final class GameViewModel: ObservableObject {
             startGameplayInfrastructure()
         case .lobby:
             gameplayInfrastructureStarted = false
+            lastHealingTargetId = nil
+            healChannelProgressByPair.removeAll()
+            localLevelHoldDuration = 0
         case .ended:
             motion.stop()
             proximity.stop()
             gameplayInfrastructureStarted = false
+            lastHealingTargetId = nil
+            healChannelProgressByPair.removeAll()
+            localLevelHoldDuration = 0
         default:
             break
         }
@@ -459,6 +520,106 @@ final class GameViewModel: ObservableObject {
         if proximity.isPlayerInShootRange(enemyId) { return true }
         if GameConstants.proximityFallbackToAllConnectedPeers {
             return session.peerID(forPlayerId: enemyId) != nil
+        }
+        return false
+    }
+
+    private func isTeammateInHealRange(_ playerId: UUID) -> Bool {
+        if playerId == GameConstants.soloTestBotPlayerId { return true }
+        if proximity.isPlayerInShootRange(playerId) { return true }
+        if GameConstants.proximityFallbackToAllConnectedPeers {
+            return session.peerID(forPlayerId: playerId) != nil
+        }
+        return false
+    }
+
+    private var healableTeammateInRange: PlayerState? {
+        guard gameState.phase == .playing else { return nil }
+        guard let selfPlayer = gameState.players.first(where: { $0.id == localPlayerId }) else { return nil }
+        guard selfPlayer.isDead == false else { return nil }
+        let candidates = gameState.players.filter {
+            $0.id != localPlayerId
+                && $0.team == selfPlayer.team
+                && $0.isDead == false
+                && $0.health < GameConstants.playerMaxHealth
+                && isTeammateInHealRange($0.id)
+        }
+        return candidates.min(by: { $0.health < $1.health })
+    }
+
+    private func updateHealingHeartbeat() {
+        let targetId = healableTeammateInRange?.id
+        let isLeveling = localLevelHoldDuration > 0
+
+        if session.isHost {
+            if let targetId, isLeveling {
+                if let last = lastHealingTargetId, last != targetId {
+                    _ = applyHealingHeartbeat(healerId: localPlayerId, healedPlayerId: last, isLeveling: false)
+                }
+                if applyHealingHeartbeat(healerId: localPlayerId, healedPlayerId: targetId, isLeveling: true) {
+                    objectWillChange.send()
+                    session.broadcast(.fullState(gameState), reliable: true)
+                }
+                lastHealingTargetId = targetId
+            } else if let last = lastHealingTargetId {
+                if applyHealingHeartbeat(healerId: localPlayerId, healedPlayerId: last, isLeveling: false) {
+                    objectWillChange.send()
+                    session.broadcast(.fullState(gameState), reliable: true)
+                }
+                lastHealingTargetId = nil
+            }
+        } else {
+            if let targetId, isLeveling {
+                if let last = lastHealingTargetId, last != targetId {
+                    session.sendToHost(.healEvent(healerId: localPlayerId, healedPlayerId: last, isLeveling: false), hostPlayerId: gameState.hostPlayerId)
+                }
+                session.sendToHost(.healEvent(healerId: localPlayerId, healedPlayerId: targetId, isLeveling: true), hostPlayerId: gameState.hostPlayerId)
+                lastHealingTargetId = targetId
+            } else if let last = lastHealingTargetId {
+                session.sendToHost(.healEvent(healerId: localPlayerId, healedPlayerId: last, isLeveling: false), hostPlayerId: gameState.hostPlayerId)
+                lastHealingTargetId = nil
+            }
+        }
+    }
+
+    private func applyPassiveRegeneration() {
+        guard gameState.phase == .playing else { return }
+        var changed = false
+        for i in gameState.players.indices {
+            guard gameState.players[i].isDead == false else { continue }
+            guard gameState.players[i].health < GameConstants.playerMaxHealth else { continue }
+            let before = gameState.players[i].health
+            gameState.players[i].health = min(GameConstants.playerMaxHealth, before + GameConstants.passiveRegenPerSecond)
+            changed = changed || gameState.players[i].health != before
+        }
+        if changed {
+            objectWillChange.send()
+            session.broadcast(.fullState(gameState), reliable: true)
+        }
+    }
+
+    private func applyHealingHeartbeat(healerId: UUID, healedPlayerId: UUID, isLeveling: Bool) -> Bool {
+        guard let healerIdx = gameState.players.firstIndex(where: { $0.id == healerId }) else { return false }
+        guard let targetIdx = gameState.players.firstIndex(where: { $0.id == healedPlayerId }) else { return false }
+        guard gameState.phase == .playing else { return false }
+        guard gameState.players[healerIdx].isDead == false else { return false }
+        guard gameState.players[healerIdx].team == gameState.players[targetIdx].team else { return false }
+        guard gameState.players[targetIdx].isDead == false else { return false }
+
+        let key = HealChannelKey(healerId: healerId, healedPlayerId: healedPlayerId)
+        if isLeveling {
+            let current = healChannelProgressByPair[key] ?? 0
+            let updated = min(current + 1, GameConstants.healChannelDuration)
+            healChannelProgressByPair[key] = updated
+
+            if updated >= GameConstants.healChannelDuration {
+                let before = gameState.players[targetIdx].health
+                gameState.players[targetIdx].health = GameConstants.playerMaxHealth
+                healChannelProgressByPair.removeValue(forKey: key)
+                return gameState.players[targetIdx].health != before
+            }
+        } else {
+            healChannelProgressByPair.removeValue(forKey: key)
         }
         return false
     }
@@ -650,6 +811,13 @@ extension GameViewModel: GameSessionManagerDelegate {
             replaceState(state)
             statusMessage = "Game on — jump to shoot"
 
+        case let .healEvent(healerId, healedPlayerId, isLeveling):
+            guard session.isHost else { return }
+            if applyHealingHeartbeat(healerId: healerId, healedPlayerId: healedPlayerId, isLeveling: isLeveling) {
+                objectWillChange.send()
+                session.broadcast(.fullState(gameState), reliable: true)
+            }
+
         case let .shootEvent(event):
             guard session.isHost else { return }
             GameStateEngine.applyShoot(&gameState, event: event)
@@ -673,6 +841,12 @@ extension GameViewModel: MotionManagerDelegate {
     nonisolated func motionManagerDidDetectShot(_ manager: MotionManager) {
         Task { @MainActor in
             self.handleShootDetected()
+        }
+    }
+
+    nonisolated func motionManager(_ manager: MotionManager, didUpdateLeveling isLeveling: Bool, heldDuration: TimeInterval) {
+        Task { @MainActor in
+            self.localLevelHoldDuration = isLeveling ? heldDuration : 0
         }
     }
 }
