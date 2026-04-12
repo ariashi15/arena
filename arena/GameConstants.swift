@@ -50,14 +50,23 @@ enum GameConstants {
     /// Starting XP for each checkpoint.
     static let checkpointMaxXP = 100
 
+    /// Seconds a teammate must keep the phone level to fully heal another player.
+    static let healChannelDuration: TimeInterval = 10
+
+    /// Passive self-heal while alive when not actively healed by a teammate.
+    static let passiveRegenPerSecond = 1
+
+    /// Tolerance for the phone-level check used to channel healing.
+    static let healLevelToleranceDegrees: Double = 8
+
     /// Gameplay map: a checkpoint marker is only shown when GPS says you are within this distance (meters).
     static let checkpointRevealDistanceMeters: Double = 5
 
     /// Damage applied per successful shot to a player.
-    static let playerShotDamage = 10
+    static let playerShotDamage = 5
 
     /// Damage applied per successful shot to a checkpoint.
-    static let checkpointShotDamage = 15
+    static let checkpointShotDamage = 5
 
     /// Seconds before respawn after death.
     static let respawnDuration: TimeInterval = 60
@@ -69,6 +78,12 @@ enum GameConstants {
     /// (RSSI is negative; closer devices have higher / less negative readings).
     /// Tune per field test; -72 is a rough “few meters” starting point.
     static let shootRSSIThreshold: Int = -72
+
+    /// Player-versus-player conflict radius (stricter / shorter range than default).
+    static let playerConflictRSSIThreshold: Int = -62
+
+    /// Checkpoint interaction radius (looser / longer range than player conflict).
+    static let checkpointRangeRSSIThreshold: Int = -74
 
     /// If BLE is unavailable or unauthorized, fall back to treating all connected Multipeer peers as in range (debug / demo).
     static let proximityFallbackToAllConnectedPeers = true
