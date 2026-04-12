@@ -29,6 +29,7 @@ struct LobbyView: View {
                             landingSessionContent
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
                 }
             }
@@ -148,6 +149,7 @@ struct LobbyView: View {
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 lobbyCard(title: "Solo testing", icon: "wrench.and.screwdriver.fill") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -196,6 +198,7 @@ struct LobbyView: View {
             }
             content()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
