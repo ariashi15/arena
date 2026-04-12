@@ -63,10 +63,10 @@ enum GameConstants {
     static let checkpointRevealDistanceMeters: Double = 5
 
     /// Damage applied per successful shot to a player.
-    static let playerShotDamage = 10
+    static let playerShotDamage = 5
 
     /// Damage applied per successful shot to a checkpoint.
-    static let checkpointShotDamage = 15
+    static let checkpointShotDamage = 5
 
     /// Seconds before respawn after death.
     static let respawnDuration: TimeInterval = 60
@@ -80,10 +80,10 @@ enum GameConstants {
     static let shootRSSIThreshold: Int = -72
 
     /// Player-versus-player conflict radius (stricter / shorter range than default).
-    static let playerConflictRSSIThreshold: Int = -66
+    static let playerConflictRSSIThreshold: Int = -62
 
     /// Checkpoint interaction radius (looser / longer range than player conflict).
-    static let checkpointRangeRSSIThreshold: Int = -78
+    static let checkpointRangeRSSIThreshold: Int = -74
 
     /// If BLE is unavailable or unauthorized, fall back to treating all connected Multipeer peers as in range (debug / demo).
     static let proximityFallbackToAllConnectedPeers = true
