@@ -79,6 +79,12 @@ enum GameConstants {
     /// Tune per field test; -72 is a rough “few meters” starting point.
     static let shootRSSIThreshold: Int = -72
 
+    /// Player-versus-player conflict radius (stricter / shorter range than default).
+    static let playerConflictRSSIThreshold: Int = -66
+
+    /// Checkpoint interaction radius (looser / longer range than player conflict).
+    static let checkpointRangeRSSIThreshold: Int = -78
+
     /// If BLE is unavailable or unauthorized, fall back to treating all connected Multipeer peers as in range (debug / demo).
     static let proximityFallbackToAllConnectedPeers = true
 }

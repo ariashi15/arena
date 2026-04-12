@@ -8,7 +8,7 @@ import CoreMotion
 
 protocol MotionManagerDelegate: AnyObject {
     func motionManagerDidDetectShot(_ manager: MotionManager)
-    func motionManager(_ manager: MotionManager, didUpdateLeveling isLeveling: Bool, heldDuration: TimeInterval)
+    func motionManager(_ manager: MotionManager, didUpdateLeveling isLeveling: Bool, heldDuration: TimeInterval, levelAngleDegrees: Double)
 }
 
 /// Detects a jump-like impulse using user acceleration (debounced).
@@ -59,7 +59,7 @@ final class MotionManager {
         levelStartDate = nil
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.delegate?.motionManager(self, didUpdateLeveling: false, heldDuration: 0)
+            self.delegate?.motionManager(self, didUpdateLeveling: false, heldDuration: 0, levelAngleDegrees: 0)
         }
     }
 
@@ -78,9 +78,10 @@ final class MotionManager {
         }
 
         let held = levelStartDate.map { Date().timeIntervalSince($0) } ?? 0
+        let angleDegrees = max(abs(deviceMotion.attitude.pitch), abs(deviceMotion.attitude.roll)) * 180 / .pi
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.delegate?.motionManager(self, didUpdateLeveling: isLeveling, heldDuration: held)
+            self.delegate?.motionManager(self, didUpdateLeveling: isLeveling, heldDuration: held, levelAngleDegrees: angleDegrees)
         }
     }
 

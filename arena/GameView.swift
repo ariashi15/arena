@@ -247,6 +247,10 @@ struct GameView: View {
                 damagePopOverlay
             }
 
+            if game.isHealingActive, game.currentHealTarget != nil {
+                healingAngleOverlay
+            }
+
             mapModeToggleButton
         }
     }
@@ -439,8 +443,60 @@ struct GameView: View {
                 )
                 .transition(.opacity)
             }
+
+            if game.currentHealTarget != nil {
+                Button {
+                    game.toggleHealingMode()
+                } label: {
+                    Text(game.isHealingActive ? "Stop Healing" : "Start Healing")
+                        .font(.headline.weight(.bold))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .foregroundStyle(.white)
+                        .background((game.isHealingActive ? Color.green : themeYellow).opacity(0.92), in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(.bottom, 88)
+    }
+
+    private var healingAngleOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.25)
+                .ignoresSafeArea()
+
+            VStack(spacing: 10) {
+                Text("Healing alignment")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+
+                Text(String(format: "%.1f°", game.localLevelAngleDegrees))
+                    .font(.system(size: 44, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+
+                if let heal = game.currentHealTarget {
+                    switch heal {
+                    case let .teammate(_, progress):
+                        ProgressView(value: progress)
+                            .tint(.green)
+                        Text("Hold level for \(Int(GameConstants.healChannelDuration))s")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+                }
+            }
+            .padding(16)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.3), lineWidth: 1)
+            )
+            .padding(.horizontal, 32)
+            .padding(.top, 110)
+            .frame(maxHeight: .infinity, alignment: .top)
+        }
+        .allowsHitTesting(false)
     }
 
     private func healthCircle(
