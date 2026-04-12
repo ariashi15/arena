@@ -431,14 +431,13 @@ struct GameView: View {
                 .transition(.opacity)
             }
 
-            if game.shouldPromptForAimSelection {
-                Text("Select Opponent or Checkpoint")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.black.opacity(0.28), in: Capsule())
-            }
+            Text("Select Opponent or Checkpoint")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.black.opacity(0.28), in: Capsule())
+                .opacity(game.shouldPromptForAimSelection ? 1 : 0)
 
             if game.currentHealTarget != nil {
                 Button {
